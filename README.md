@@ -46,25 +46,38 @@ npm run dev
 
 ```
 knowhy_auht0/
-├── client/              # React + Vite frontend
+├── .env                    # Tüm env değişkenleri (tek dosya, git'e eklenmez)
+├── .env.example            # Ortam değişkenleri şablonu
+├── docker-compose.yml      # Docker (Postgres + Backend + Frontend)
+├── client/                 # React + Vite + TailwindCSS frontend
 │   ├── src/
-│   │   ├── components/  # UI bileşenleri
-│   │   ├── pages/       # Sayfa bileşenleri
-│   │   ├── i18n/        # Çoklu dil dosyaları
-│   │   └── main.jsx     # Giriş noktası
-│   └── package.json
-├── server/              # Node.js + Express backend
+│   │   ├── components/     # Layout, Sidebar, LoadingScreen
+│   │   ├── pages/          # LoginPage, ChatPage, SettingsPage
+│   │   ├── services/       # api.js (merkezi backend iletişim)
+│   │   ├── i18n/           # Çoklu dil (TR/EN)
+│   │   └── main.jsx
+│   ├── vite.config.js      # envDir: kök .env'yi okur
+│   └── Dockerfile          # Multi-stage (build + nginx)
+├── server/                 # Node.js + Express backend
 │   ├── src/
-│   │   ├── routes/      # API endpoint'leri
-│   │   ├── middleware/   # Auth, error handling
-│   │   ├── db/          # PostgreSQL bağlantısı
-│   │   ├── services/    # İş mantığı (agents, email)
-│   │   ├── locales/     # Backend i18n
-│   │   └── index.js     # Sunucu giriş noktası
-│   └── package.json
-├── docs/                # Proje dokümantasyonu
-├── docker-compose.yml   # Docker yapılandırması
-└── .env.example         # Ortam değişkenleri şablonu
+│   │   ├── services/
+│   │   │   ├── tokenVault.js      # Auth0 Token Vault (M2M)
+│   │   │   ├── gmail.js           # Gmail API (Blind Token Injection)
+│   │   │   ├── openrouter.js      # OpenRouter LLM çağrıları
+│   │   │   ├── workerAgent.js     # İşçi Ajan (kullanıcı isteği → tool call)
+│   │   │   ├── guardrailAgent.js  # Güvenlik Ajanı (içerik denetimi)
+│   │   │   ├── toolExecutor.js    # Tool call → Gmail API (uzaktan kol)
+│   │   │   ├── tools.js           # LLM tool tanımları
+│   │   │   ├── stepUpAuth.js      # CIBA Step-up Auth (MFA)
+│   │   │   └── cronJobs.js        # Gece e-posta özetleme
+│   │   ├── routes/         # auth, chat, email, stepup, user, health
+│   │   ├── middleware/     # JWT auth, error handler, audit log
+│   │   ├── db/             # PostgreSQL init + query helpers
+│   │   └── index.js
+│   └── Dockerfile
+└── docs/
+    ├── history/            # Revizyon notları (001, 002, 003...)
+    └── test/               # Test scriptleri
 ```
 
 ## Mimari

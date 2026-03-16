@@ -30,11 +30,9 @@ export default function SettingsPage() {
   const fetchProfile = async () => {
     try {
       const token = await getAccessTokenSilently();
-      const response = await axios.get('/api/auth/profile', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (response.data.success) {
-        setGmailConnected(response.data.user.gmailConnected);
+      const data = await authApi.getProfile(token);
+      if (data.success) {
+        setGmailConnected(data.user.gmailConnected);
       }
     } catch (error) {
       toast.error(t('common.error'));
@@ -47,13 +45,9 @@ export default function SettingsPage() {
     setConnecting(true);
     try {
       const token = await getAccessTokenSilently();
-      const response = await axios.post(
-        '/api/auth/connect-gmail',
-        {},
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      if (response.data.success && response.data.connectionUrl) {
-        window.open(response.data.connectionUrl, '_blank', 'width=600,height=700');
+      const data = await authApi.connectGmail(token);
+      if (data.success && data.connectionUrl) {
+        window.open(data.connectionUrl, '_blank', 'width=600,height=700');
       }
     } catch (error) {
       toast.error(t('common.error'));
@@ -65,11 +59,7 @@ export default function SettingsPage() {
   const handleDisconnectGmail = async () => {
     try {
       const token = await getAccessTokenSilently();
-      await axios.post(
-        '/api/auth/disconnect-gmail',
-        {},
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      await authApi.disconnectGmail(token);
       setGmailConnected(false);
       toast.success(t('gmail.notConnected'));
     } catch (error) {
@@ -81,11 +71,7 @@ export default function SettingsPage() {
     i18n.changeLanguage(lng);
     try {
       const token = await getAccessTokenSilently();
-      await axios.put(
-        '/api/auth/locale',
-        { locale: lng },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      await authApi.updateLocale(token, lng);
     } catch {
       // Non-critical, UI already changed
     }

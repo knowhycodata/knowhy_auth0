@@ -14,7 +14,7 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./server/db/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./server/src/db/init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-knowhy_user} -d ${POSTGRES_DB:-knowhy_db}"]
       interval: 10s
@@ -58,6 +58,11 @@ services:
     build:
       context: ./client
       dockerfile: Dockerfile
+      args:
+        VITE_AUTH0_DOMAIN: ${VITE_AUTH0_DOMAIN}
+        VITE_AUTH0_CLIENT_ID: ${VITE_AUTH0_CLIENT_ID}
+        VITE_AUTH0_AUDIENCE: ${VITE_AUTH0_AUDIENCE}
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:3001}
     container_name: knowhy_frontend
     restart: unless-stopped
     depends_on:
