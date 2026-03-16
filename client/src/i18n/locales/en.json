@@ -1,0 +1,59 @@
+{
+  "app": {
+    "title": "KnowHy",
+    "subtitle": "AI Email Assistant",
+    "description": "Secure, intelligent email management powered by AI"
+  },
+  "nav": {
+    "chat": "Chat",
+    "settings": "Settings",
+    "history": "History",
+    "logout": "Log out"
+  },
+  "auth": {
+    "login": "Log in",
+    "signup": "Sign up",
+    "loginTitle": "Welcome to KnowHy",
+    "loginSubtitle": "Sign in to access your AI email assistant",
+    "loggingIn": "Signing in..."
+  },
+  "chat": {
+    "placeholder": "Type your message...",
+    "send": "Send",
+    "newChat": "New Chat",
+    "thinking": "Thinking...",
+    "welcomeTitle": "Hello, {{name}}!",
+    "welcomeMessage": "I'm your AI email assistant. I can help you read, summarize, and manage your Gmail inbox. What would you like to do?",
+    "suggestions": {
+      "readEmails": "Read my latest emails",
+      "summarize": "Summarize my inbox",
+      "draft": "Draft a reply"
+    }
+  },
+  "gmail": {
+    "connect": "Connect Gmail",
+    "disconnect": "Disconnect Gmail",
+    "connected": "Gmail Connected",
+    "notConnected": "Gmail Not Connected",
+    "connectDescription": "Connect your Gmail account to let KnowHy read and manage your emails securely.",
+    "securityNote": "Your credentials are stored securely in Auth0 Token Vault. We never store your Google tokens."
+  },
+  "settings": {
+    "title": "Settings",
+    "language": "Language",
+    "theme": "Theme",
+    "permissions": "Permissions",
+    "gmailAccess": "Gmail Access",
+    "security": "Security",
+    "securityDescription": "All email actions are protected by Auth0 Token Vault. Sensitive operations require MFA."
+  },
+  "common": {
+    "loading": "Loading...",
+    "error": "An error occurred",
+    "retry": "Retry",
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "confirm": "Confirm"
+  }
+}

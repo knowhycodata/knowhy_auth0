@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: knowhy_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-knowhy_db}
+      POSTGRES_USER: ${POSTGRES_USER:-knowhy_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-knowhy_secure_password_2024}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./server/db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-knowhy_user} -d ${POSTGRES_DB:-knowhy_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Node.js Backend (Express)
+  backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: knowhy_backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      SERVER_PORT: 3001
+      DATABASE_URL: postgresql://${POSTGRES_USER:-knowhy_user}:${POSTGRES_PASSWORD:-knowhy_secure_password_2024}@postgres:5432/${POSTGRES_DB:-knowhy_db}
+      AUTH0_DOMAIN: ${AUTH0_DOMAIN}
+      AUTH0_CLIENT_ID: ${AUTH0_CLIENT_ID}
+      AUTH0_CLIENT_SECRET: ${AUTH0_CLIENT_SECRET}
+      AUTH0_AUDIENCE: ${AUTH0_AUDIENCE}
+      AUTH0_CALLBACK_URL: ${AUTH0_CALLBACK_URL}
+      AUTH0_LOGOUT_URL: ${AUTH0_LOGOUT_URL}
+      AUTH0_SECRET: ${AUTH0_SECRET}
+      AUTH0_CUSTOM_API_CLIENT_ID: ${AUTH0_CUSTOM_API_CLIENT_ID}
+      AUTH0_CUSTOM_API_CLIENT_SECRET: ${AUTH0_CUSTOM_API_CLIENT_SECRET}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL}
+      WORKER_MODEL: ${WORKER_MODEL}
+      GUARDRAIL_MODEL: ${GUARDRAIL_MODEL}
+      SESSION_SECRET: ${SESSION_SECRET}
+      CLIENT_URL: ${CLIENT_URL:-http://localhost:5173}
+    ports:
+      - "3001:3001"
+
+  # React Frontend (Vite)
+  frontend:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: knowhy_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
+
+volumes:
+  postgres_data:
+    driver: local

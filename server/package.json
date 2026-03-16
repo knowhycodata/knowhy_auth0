@@ -1,0 +1,35 @@
+{
+  "name": "knowhy-backend",
+  "version": "1.0.0",
+  "description": "KnowHy AI Email Assistant - Backend Server",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "nodemon src/index.js",
+    "start": "node src/index.js",
+    "db:migrate": "node src/db/migrate.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "cors": "^2.8.5",
+    "helmet": "^8.0.0",
+    "morgan": "^1.10.0",
+    "dotenv": "^16.4.5",
+    "express-session": "^1.18.0",
+    "express-openid-connect": "^2.17.1",
+    "pg": "^8.13.0",
+    "axios": "^1.7.7",
+    "node-cron": "^3.0.3",
+    "express-rate-limit": "^7.4.0",
+    "hpp": "^0.2.3",
+    "i18next": "^23.15.1",
+    "i18next-http-middleware": "^3.6.0",
+    "i18next-fs-backend": "^2.3.2",
+    "jose": "^5.9.3",
+    "uuid": "^10.0.0",
+    "winston": "^3.14.2",
+    "sanitize-html": "^2.13.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.7"
+  }
+}

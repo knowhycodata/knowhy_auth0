@@ -1,0 +1,146 @@
+const express = require('express');
+const router = express.Router();
+const logger = require('../utils/logger');
+const { requireAuth } = require('../middleware/auth');
+const { auditLog } = require('../middleware/auditLog');
+const { query } = require('../db');
+const { v4: uuidv4 } = require('uuid');
+const sanitizeHtml = require('sanitize-html');
+const { processMessage } = require('../services/workerAgent');
+
+// POST /api/chat - Send a message to the AI agent
+router.post('/', requireAuth, async (req, res) => {
+  try {
+    const { message, conversationId, locale } = req.body;
+
+    if (!message || typeof message !== 'string' || message.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: req.t ? req.t('errors.emptyMessage') : 'Message cannot be empty',
+      });
+    }
+
+    // Sanitize user input
+    const sanitizedMessage = sanitizeHtml(message.trim(), {
+      allowedTags: [],
+      allowedAttributes: {},
+    });
+
+    if (sanitizedMessage.length > 5000) {
+      return res.status(400).json({
+        success: false,
+        error: req.t ? req.t('errors.messageTooLong') : 'Message too long (max 5000 chars)',
+      });
+    }
+
+    // Create or get conversation
+    let convId = conversationId;
+    if (!convId) {
+      const convResult = await query(
+        `INSERT INTO conversations (user_id, title, locale) VALUES ($1, $2, $3) RETURNING id`,
+        [req.dbUser.id, sanitizedMessage.substring(0, 100), locale || req.dbUser.locale || 'en']
+      );
+      convId = convResult.rows[0].id;
+    } else {
+      // Verify conversation belongs to user
+      const convCheck = await query(
+        'SELECT id FROM conversations WHERE id = $1 AND user_id = $2',
+        [convId, req.dbUser.id]
+      );
+      if (convCheck.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Conversation not found' });
+      }
+    }
+
+    // Save user message
+    await query(
+      `INSERT INTO messages (conversation_id, role, content) VALUES ($1, $2, $3)`,
+      [convId, 'user', sanitizedMessage]
+    );
+
+    await auditLog(req.dbUser.id, 'chat_message_sent', 'chat', { conversationId: convId }, req);
+
+    // Konuşma geçmişini al (son 20 mesaj)
+    const historyResult = await query(
+      `SELECT role, content FROM messages
+       WHERE conversation_id = $1
+       ORDER BY created_at ASC
+       LIMIT 20`,
+      [convId]
+    );
+    // Son mesajı (şu anda eklenen user mesajını) çıkar, çünkü worker'a ayrıca gönderiyoruz
+    const conversationHistory = historyResult.rows.slice(0, -1);
+
+    // Worker Agent + Guardrail Agent ile mesajı işle
+    const agentResult = await processMessage(sanitizedMessage, conversationHistory, {
+      auth0UserId: req.user.sub,
+      dbUserId: req.dbUser.id,
+      gmailConnected: req.dbUser.gmail_connected,
+      locale: locale || req.dbUser.locale || 'en',
+      req,
+    });
+
+    const assistantResponse = agentResult.content;
+
+    // Save assistant response with metadata
+    const metadata = {};
+    if (agentResult.toolResults.length > 0) {
+      metadata.toolResults = agentResult.toolResults.map((tr) => ({
+        tool: tr.tool,
+        success: tr.result?.success,
+      }));
+    }
+    if (agentResult.guardrailFlags.length > 0) {
+      metadata.guardrailFlags = agentResult.guardrailFlags;
+    }
+
+    await query(
+      `INSERT INTO messages (conversation_id, role, content, metadata) VALUES ($1, $2, $3, $4)`,
+      [convId, 'assistant', assistantResponse, Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null]
+    );
+
+    // Update conversation timestamp
+    await query(
+      'UPDATE conversations SET updated_at = NOW() WHERE id = $1',
+      [convId]
+    );
+
+    res.json({
+      success: true,
+      conversationId: convId,
+      message: {
+        role: 'assistant',
+        content: assistantResponse,
+      },
+      ...(agentResult.guardrailFlags.length > 0 && { guardrailFlags: agentResult.guardrailFlags }),
+    });
+  } catch (error) {
+    logger.error('Chat error:', error);
+    res.status(500).json({
+      success: false,
+      error: req.t ? req.t('errors.chatFailed') : 'Failed to process message',
+    });
+  }
+});
+
+// GET /api/chat/conversations - List conversations (alias)
+router.get('/conversations', requireAuth, async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT c.id, c.title, c.locale, c.created_at, c.updated_at,
+              (SELECT content FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message
+       FROM conversations c
+       WHERE c.user_id = $1
+       ORDER BY c.updated_at DESC
+       LIMIT 50`,
+      [req.dbUser.id]
+    );
+
+    res.json({ success: true, conversations: result.rows });
+  } catch (error) {
+    logger.error('Conversations fetch error:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch conversations' });
+  }
+});
+
+module.exports = router;

@@ -1,0 +1,19 @@
+{
+  "name": "knowhy-ai-email-assistant",
+  "version": "1.0.0",
+  "description": "KnowHy - AI Email Assistant with Auth0 Token Vault, Zero Trust Architecture",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd server && npm run dev",
+    "dev:frontend": "cd client && npm run dev",
+    "install:all": "npm install && cd server && npm install && cd ../client && npm install",
+    "build": "cd client && npm run build",
+    "docker:up": "docker-compose up --build",
+    "docker:down": "docker-compose down",
+    "docker:reset": "docker-compose down -v && docker-compose up --build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

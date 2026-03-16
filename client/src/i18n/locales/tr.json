@@ -1,0 +1,59 @@
+{
+  "app": {
+    "title": "KnowHy",
+    "subtitle": "Yapay Zeka E-posta Asistanı",
+    "description": "Yapay zeka destekli güvenli ve akıllı e-posta yönetimi"
+  },
+  "nav": {
+    "chat": "Sohbet",
+    "settings": "Ayarlar",
+    "history": "Geçmiş",
+    "logout": "Çıkış Yap"
+  },
+  "auth": {
+    "login": "Giriş Yap",
+    "signup": "Kayıt Ol",
+    "loginTitle": "KnowHy'a Hoş Geldiniz",
+    "loginSubtitle": "Yapay zeka e-posta asistanınıza erişmek için giriş yapın",
+    "loggingIn": "Giriş yapılıyor..."
+  },
+  "chat": {
+    "placeholder": "Mesajınızı yazın...",
+    "send": "Gönder",
+    "newChat": "Yeni Sohbet",
+    "thinking": "Düşünüyor...",
+    "welcomeTitle": "Merhaba, {{name}}!",
+    "welcomeMessage": "Ben yapay zeka e-posta asistanınızım. Gmail gelen kutunuzu okuma, özetleme ve yönetme konusunda size yardımcı olabilirim. Ne yapmak istersiniz?",
+    "suggestions": {
+      "readEmails": "Son e-postalarımı oku",
+      "summarize": "Gelen kutumu özetle",
+      "draft": "Bir yanıt taslağı oluştur"
+    }
+  },
+  "gmail": {
+    "connect": "Gmail'i Bağla",
+    "disconnect": "Gmail Bağlantısını Kes",
+    "connected": "Gmail Bağlı",
+    "notConnected": "Gmail Bağlı Değil",
+    "connectDescription": "KnowHy'ın e-postalarınızı güvenli bir şekilde okuması ve yönetmesi için Gmail hesabınızı bağlayın.",
+    "securityNote": "Kimlik bilgileriniz Auth0 Token Vault'ta güvenli bir şekilde saklanır. Google token'larınızı asla saklamayız."
+  },
+  "settings": {
+    "title": "Ayarlar",
+    "language": "Dil",
+    "theme": "Tema",
+    "permissions": "İzinler",
+    "gmailAccess": "Gmail Erişimi",
+    "security": "Güvenlik",
+    "securityDescription": "Tüm e-posta işlemleri Auth0 Token Vault tarafından korunmaktadır. Hassas işlemler MFA gerektirir."
+  },
+  "common": {
+    "loading": "Yükleniyor...",
+    "error": "Bir hata oluştu",
+    "retry": "Tekrar Dene",
+    "cancel": "İptal",
+    "save": "Kaydet",
+    "delete": "Sil",
+    "confirm": "Onayla"
+  }
+}
