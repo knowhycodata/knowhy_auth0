@@ -1,4 +1,4 @@
--- KnowHy AI Email Assistant - Database Schema
+-- Knowhy AI Email Assistant - Database Schema
 -- Token'lar burada TUTULMAZ, Auth0 Token Vault kullanılır.
 
 CREATE TABLE IF NOT EXISTS users (

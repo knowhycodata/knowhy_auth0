@@ -30,12 +30,16 @@ export default function SettingsPage() {
   const fetchProfile = async () => {
     try {
       const token = await getAccessTokenSilently();
+      console.log('[DEBUG] Token obtained:', token ? `${token.substring(0, 50)}...` : 'NULL');
+      console.log('[DEBUG] Token length:', token?.length);
       const data = await authApi.getProfile(token);
       if (data.success) {
         setGmailConnected(data.user.gmailConnected);
       }
     } catch (error) {
-      toast.error(t('common.error'));
+      console.error('[DEBUG] fetchProfile error:', error);
+      console.error('[DEBUG] Error response:', error.data);
+      toast.error(error.data?.error || t('common.error'));
     } finally {
       setLoading(false);
     }

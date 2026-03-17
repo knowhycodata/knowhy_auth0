@@ -11,7 +11,7 @@ export default function LoadingScreen() {
           <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
         </div>
         <div className="text-center">
-          <h2 className="text-xl font-semibold text-white">KnowHy</h2>
+          <h2 className="text-xl font-semibold text-white">Knowhy</h2>
           <p className="text-dark-400 text-sm mt-1">{t('common.loading')}</p>
         </div>
       </div>

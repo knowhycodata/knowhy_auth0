@@ -4,19 +4,19 @@ services:
   # PostgreSQL Database
   postgres:
     image: postgres:16-alpine
-    container_name: knowhy_postgres
+    container_name: Knowhy_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-knowhy_db}
-      POSTGRES_USER: ${POSTGRES_USER:-knowhy_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-knowhy_secure_password_2024}
+      POSTGRES_DB: ${POSTGRES_DB:-Knowhy_db}
+      POSTGRES_USER: ${POSTGRES_USER:-Knowhy_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-Knowhy_secure_password_2024}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./server/src/db/init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-knowhy_user} -d ${POSTGRES_DB:-knowhy_db}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-Knowhy_user} -d ${POSTGRES_DB:-Knowhy_db}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -26,7 +26,7 @@ services:
     build:
       context: ./server
       dockerfile: Dockerfile
-    container_name: knowhy_backend
+    container_name: Knowhy_backend
     restart: unless-stopped
     depends_on:
       postgres:
@@ -34,7 +34,7 @@ services:
     environment:
       NODE_ENV: production
       SERVER_PORT: 3001
-      DATABASE_URL: postgresql://${POSTGRES_USER:-knowhy_user}:${POSTGRES_PASSWORD:-knowhy_secure_password_2024}@postgres:5432/${POSTGRES_DB:-knowhy_db}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-Knowhy_user}:${POSTGRES_PASSWORD:-Knowhy_secure_password_2024}@postgres:5432/${POSTGRES_DB:-Knowhy_db}
       AUTH0_DOMAIN: ${AUTH0_DOMAIN}
       AUTH0_CLIENT_ID: ${AUTH0_CLIENT_ID}
       AUTH0_CLIENT_SECRET: ${AUTH0_CLIENT_SECRET}
@@ -63,7 +63,7 @@ services:
         VITE_AUTH0_CLIENT_ID: ${VITE_AUTH0_CLIENT_ID}
         VITE_AUTH0_AUDIENCE: ${VITE_AUTH0_AUDIENCE}
         VITE_API_URL: ${VITE_API_URL:-http://localhost:3001}
-    container_name: knowhy_frontend
+    container_name: Knowhy_frontend
     restart: unless-stopped
     depends_on:
       - backend

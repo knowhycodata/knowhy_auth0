@@ -1,7 +1,7 @@
 {
-  "name": "knowhy-ai-email-assistant",
+  "name": "Knowhy-ai-email-assistant",
   "version": "1.0.0",
-  "description": "KnowHy - AI Email Assistant with Auth0 Token Vault, Zero Trust Architecture",
+  "description": "Knowhy - AI Email Assistant with Auth0 Token Vault, Zero Trust Architecture",
   "private": true,
   "scripts": {
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",

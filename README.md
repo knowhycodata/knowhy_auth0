@@ -1,4 +1,4 @@
-# KnowHy - AI Email Assistant
+# Knowhy - AI Email Assistant
 
 > Auth0 "Authorized to Act" Hackathon Project
 
@@ -45,7 +45,7 @@ npm run dev
 ## Proje Yapısı
 
 ```
-knowhy_auht0/
+Knowhy_auht0/
 ├── .env                    # Tüm env değişkenleri (tek dosya, git'e eklenmez)
 ├── .env.example            # Ortam değişkenleri şablonu
 ├── docker-compose.yml      # Docker (Postgres + Backend + Frontend)

@@ -67,10 +67,21 @@ async function requireAuth(req, res, next) {
 
     next();
   } catch (error) {
-    logger.warn('Authentication failed:', { error: error.message });
+    logger.warn('Authentication failed:', {
+      error: error.message,
+      code: error.code,
+      reason: error.reason,
+      audience: AUTH0_AUDIENCE,
+      domain: AUTH0_DOMAIN,
+    });
     return res.status(401).json({
       success: false,
       error: req.t ? req.t('errors.invalidToken') : 'Invalid or expired token',
+      debug: process.env.NODE_ENV === 'development' ? {
+        message: error.message,
+        code: error.code,
+        expectedAudience: AUTH0_AUDIENCE,
+      } : undefined,
     });
   }
 }

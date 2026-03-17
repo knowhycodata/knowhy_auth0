@@ -36,8 +36,8 @@ async function chatCompletion(model, messages, tools = [], options = {}) {
         headers: {
           'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
           'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://knowhy.app',
-          'X-Title': 'KnowHy AI Email Assistant',
+          'HTTP-Referer': 'https://Knowhy.app',
+          'X-Title': 'Knowhy AI Email Assistant',
         },
         timeout: 60000,
       }

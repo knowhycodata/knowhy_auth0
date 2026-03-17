@@ -15,11 +15,11 @@ router.post('/initiate', requireAuth, async (req, res) => {
     }
 
     const defaultMessages = {
-      send_email: 'KnowHy: Approve email send action',
-      delete_email: 'KnowHy: Approve email delete action',
+      send_email: 'Knowhy: Approve email send action',
+      delete_email: 'Knowhy: Approve email delete action',
     };
 
-    const message = bindingMessage || defaultMessages[action] || `KnowHy: Approve ${action}`;
+    const message = bindingMessage || defaultMessages[action] || `Knowhy: Approve ${action}`;
 
     const result = await initiateStepUp(req.user.sub, message);
 

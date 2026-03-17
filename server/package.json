@@ -1,7 +1,7 @@
 {
-  "name": "knowhy-backend",
+  "name": "Knowhy-backend",
   "version": "1.0.0",
-  "description": "KnowHy AI Email Assistant - Backend Server",
+  "description": "Knowhy AI Email Assistant - Backend Server",
   "main": "src/index.js",
   "scripts": {
     "dev": "nodemon src/index.js",

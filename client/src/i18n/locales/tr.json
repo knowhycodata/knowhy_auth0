@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "KnowHy",
+    "title": "Knowhy",
     "subtitle": "Yapay Zeka E-posta Asistanı",
     "description": "Yapay zeka destekli güvenli ve akıllı e-posta yönetimi"
   },
@@ -13,7 +13,7 @@
   "auth": {
     "login": "Giriş Yap",
     "signup": "Kayıt Ol",
-    "loginTitle": "KnowHy'a Hoş Geldiniz",
+    "loginTitle": "Knowhy'a Hoş Geldiniz",
     "loginSubtitle": "Yapay zeka e-posta asistanınıza erişmek için giriş yapın",
     "loggingIn": "Giriş yapılıyor..."
   },
@@ -35,7 +35,7 @@
     "disconnect": "Gmail Bağlantısını Kes",
     "connected": "Gmail Bağlı",
     "notConnected": "Gmail Bağlı Değil",
-    "connectDescription": "KnowHy'ın e-postalarınızı güvenli bir şekilde okuması ve yönetmesi için Gmail hesabınızı bağlayın.",
+    "connectDescription": "Knowhy'ın e-postalarınızı güvenli bir şekilde okuması ve yönetmesi için Gmail hesabınızı bağlayın.",
     "securityNote": "Kimlik bilgileriniz Auth0 Token Vault'ta güvenli bir şekilde saklanır. Google token'larınızı asla saklamayız."
   },
   "settings": {

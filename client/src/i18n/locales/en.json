@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "KnowHy",
+    "title": "Knowhy",
     "subtitle": "AI Email Assistant",
     "description": "Secure, intelligent email management powered by AI"
   },
@@ -13,7 +13,7 @@
   "auth": {
     "login": "Log in",
     "signup": "Sign up",
-    "loginTitle": "Welcome to KnowHy",
+    "loginTitle": "Welcome to Knowhy",
     "loginSubtitle": "Sign in to access your AI email assistant",
     "loggingIn": "Signing in..."
   },
@@ -35,7 +35,7 @@
     "disconnect": "Disconnect Gmail",
     "connected": "Gmail Connected",
     "notConnected": "Gmail Not Connected",
-    "connectDescription": "Connect your Gmail account to let KnowHy read and manage your emails securely.",
+    "connectDescription": "Connect your Gmail account to let Knowhy read and manage your emails securely.",
     "securityNote": "Your credentials are stored securely in Auth0 Token Vault. We never store your Google tokens."
   },
   "settings": {

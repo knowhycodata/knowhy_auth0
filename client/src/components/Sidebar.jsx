@@ -47,7 +47,7 @@ export default function Sidebar() {
               <Mail className="w-4 h-4 text-white" />
             </div>
             <div>
-              <h1 className="text-sm font-bold text-white">KnowHy</h1>
+              <h1 className="text-sm font-bold text-white">Knowhy</h1>
               <p className="text-[10px] text-dark-400">{t('app.subtitle')}</p>
             </div>
           </div>

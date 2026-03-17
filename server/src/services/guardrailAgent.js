@@ -13,7 +13,7 @@ const GUARDRAIL_MODEL = process.env.GUARDRAIL_MODEL || 'meta-llama/llama-3-70b-i
  * Yalnızca Guardrail Agent "Approved" verirse işlem gerçekleştirilir.
  */
 
-const GUARDRAIL_SYSTEM_PROMPT = `You are a security guardrail agent for an AI email assistant called KnowHy.
+const GUARDRAIL_SYSTEM_PROMPT = `You are a security guardrail agent for an AI email assistant called Knowhy.
 Your ONLY job is to analyze content that the Worker Agent wants to send to external services (Gmail API).
 
 You must check for:

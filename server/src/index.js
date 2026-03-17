@@ -133,7 +133,7 @@ async function startServer() {
     initCronJobs();
 
     app.listen(PORT, () => {
-      logger.info(`🚀 KnowHy Backend running on port ${PORT}`);
+      logger.info(`🚀 Knowhy Backend running on port ${PORT}`);
       logger.info(`   Environment: ${process.env.NODE_ENV || 'development'}`);
       logger.info(`   Auth0 Domain: ${process.env.AUTH0_DOMAIN || 'not configured'}`);
     });
