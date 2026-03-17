@@ -4,6 +4,18 @@ const { getFederatedToken } = require('./tokenVault');
 
 const GMAIL_API_BASE = 'https://www.googleapis.com/gmail/v1/users/me';
 
+function resolveGmailApiError(error, fallbackMessage) {
+  const apiError = error?.response?.data?.error;
+  const topReason = apiError?.errors?.[0]?.reason;
+  const detailReason = apiError?.details?.[0]?.reason;
+
+  if (topReason === 'insufficientPermissions' || detailReason === 'ACCESS_TOKEN_SCOPE_INSUFFICIENT') {
+    return 'Gmail izinleri yetersiz. Lütfen Ayarlar > Gmail Bağla adımından yeniden bağlayıp izinleri onaylayın.';
+  }
+
+  return fallbackMessage;
+}
+
 /**
  * BLIND TOKEN INJECTION: Bu servis LLM'e hiçbir token göstermez.
  * Backend "uzaktan kol" olarak Token Vault'tan token'ı çeker,
@@ -68,7 +80,7 @@ async function listEmails(auth0UserId, options = {}) {
       userId: auth0UserId,
       error: error.response?.data || error.message,
     });
-    throw new Error('Failed to list emails');
+    throw new Error(resolveGmailApiError(error, 'Failed to list emails'));
   }
 }
 
@@ -154,7 +166,7 @@ async function getEmailBody(auth0UserId, messageId) {
       messageId,
       error: error.response?.data || error.message,
     });
-    throw new Error('Failed to read email content');
+    throw new Error(resolveGmailApiError(error, 'Failed to read email content'));
   }
 }
 
@@ -204,7 +216,7 @@ async function sendEmail(auth0UserId, { to, subject, body, cc, bcc, inReplyTo, t
       to,
       error: error.response?.data || error.message,
     });
-    throw new Error('Failed to send email');
+    throw new Error(resolveGmailApiError(error, 'Failed to send email'));
   }
 }
 
@@ -229,7 +241,7 @@ async function trashEmail(auth0UserId, messageId) {
       messageId,
       error: error.response?.data || error.message,
     });
-    throw new Error('Failed to delete email');
+    throw new Error(resolveGmailApiError(error, 'Failed to delete email'));
   }
 }
 
@@ -252,7 +264,7 @@ async function modifyLabels(auth0UserId, messageId, { addLabelIds = [], removeLa
       messageId,
       error: error.response?.data || error.message,
     });
-    throw new Error('Failed to update email');
+    throw new Error(resolveGmailApiError(error, 'Failed to update email'));
   }
 }
 

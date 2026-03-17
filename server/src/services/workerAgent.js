@@ -1,5 +1,5 @@
 const { chatCompletion } = require('./openrouter');
-const { TOOLS } = require('./tools');
+const { TOOLS, isHighStakesAction } = require('./tools');
 const { executeTool } = require('./toolExecutor');
 const { inspectToolCall, inspectAgentResponse } = require('./guardrailAgent');
 const { auditLog } = require('../middleware/auditLog');
@@ -7,6 +7,7 @@ const logger = require('../utils/logger');
 
 const WORKER_MODEL = process.env.WORKER_MODEL || 'anthropic/claude-3.5-sonnet';
 const MAX_TOOL_ROUNDS = 5;
+const ENABLE_RESPONSE_GUARDRAIL = process.env.ENABLE_RESPONSE_GUARDRAIL === 'true';
 
 /**
  * WORKER AGENT - İşçi Ajan
@@ -87,31 +88,34 @@ async function processMessage(userMessage, conversationHistory, context) {
 
     // Tool call yoksa, text yanıtı döndür
     if (!response.toolCalls || response.toolCalls.length === 0) {
-      // Guardrail: Agent yanıtını denetle
-      const guardrailResult = await inspectAgentResponse(response.content, userMessage);
+      // Normal sohbet yanıtlarında güvenlik friksiyonunu azaltmak için varsayılan olarak
+      // response-level guardrail kapalıdır. İstenirse ENV ile yeniden açılabilir.
+      if (ENABLE_RESPONSE_GUARDRAIL) {
+        const guardrailResult = await inspectAgentResponse(response.content, userMessage);
 
-      if (!guardrailResult.approved) {
-        logger.warn('Guardrail rejected agent response', {
-          reason: guardrailResult.reason,
-          userId: auth0UserId,
-        });
-        guardrailFlags.push({
-          type: 'response_rejected',
-          reason: guardrailResult.reason,
-        });
-        await auditLog(dbUserId, 'guardrail_response_rejected', 'agent', {
-          reason: guardrailResult.reason,
-        }, req, 'rejected');
+        if (!guardrailResult.approved) {
+          logger.warn('Guardrail rejected agent response', {
+            reason: guardrailResult.reason,
+            userId: auth0UserId,
+          });
+          guardrailFlags.push({
+            type: 'response_rejected',
+            reason: guardrailResult.reason,
+          });
+          await auditLog(dbUserId, 'guardrail_response_rejected', 'agent', {
+            reason: guardrailResult.reason,
+          }, req, 'rejected');
 
-        // Güvenli bir yanıt döndür
-        const safeResponse = locale === 'tr'
-          ? 'Güvenlik kontrolü nedeniyle bu yanıt engellenmiştir. Lütfen farklı bir şekilde sorunuzu tekrarlayın.'
-          : 'This response was blocked by the security guardrail. Please try rephrasing your request.';
+          // Güvenli bir yanıt döndür
+          const safeResponse = locale === 'tr'
+            ? 'Güvenlik kontrolü nedeniyle bu yanıt engellenmiştir. Lütfen farklı bir şekilde sorunuzu tekrarlayın.'
+            : 'This response was blocked by the security guardrail. Please try rephrasing your request.';
 
-        return { content: safeResponse, toolResults, guardrailFlags };
+          return { content: safeResponse, toolResults, guardrailFlags };
+        }
+
+        await auditLog(dbUserId, 'guardrail_response_approved', 'agent', null, req, 'approved');
       }
-
-      await auditLog(dbUserId, 'guardrail_response_approved', 'agent', null, req, 'approved');
 
       return { content: response.content, toolResults, guardrailFlags };
     }
@@ -127,45 +131,47 @@ async function processMessage(userMessage, conversationHistory, context) {
         toolArgs = {};
       }
 
-      // Guardrail: Tool call'ı denetle
-      const guardrailResult = await inspectToolCall(toolName, toolArgs, userMessage);
+      // Guardrail sadece high-stakes tool call'lar için zorunlu.
+      if (isHighStakesAction(toolName)) {
+        const guardrailResult = await inspectToolCall(toolName, toolArgs, userMessage);
 
-      if (!guardrailResult.approved) {
-        logger.warn('Guardrail rejected tool call', {
-          toolName,
-          reason: guardrailResult.reason,
-          userId: auth0UserId,
-        });
-        guardrailFlags.push({
-          type: 'tool_rejected',
-          tool: toolName,
-          reason: guardrailResult.reason,
-        });
-        await auditLog(dbUserId, 'guardrail_tool_rejected', 'agent', {
-          toolName,
-          reason: guardrailResult.reason,
-        }, req, 'rejected');
+        if (!guardrailResult.approved) {
+          logger.warn('Guardrail rejected high-stakes tool call', {
+            toolName,
+            reason: guardrailResult.reason,
+            userId: auth0UserId,
+          });
+          guardrailFlags.push({
+            type: 'tool_rejected',
+            tool: toolName,
+            reason: guardrailResult.reason,
+          });
+          await auditLog(dbUserId, 'guardrail_tool_rejected', 'agent', {
+            toolName,
+            reason: guardrailResult.reason,
+          }, req, 'rejected');
 
-        // Reddedilen tool call için hata mesajı ekle
-        messages.push({
-          role: 'assistant',
-          content: null,
-          tool_calls: [toolCall],
-        });
-        messages.push({
-          role: 'tool',
-          tool_call_id: toolCall.id,
-          content: JSON.stringify({
-            success: false,
-            error: `Security guardrail blocked this action: ${guardrailResult.reason}`,
-          }),
-        });
-        continue;
+          // Reddedilen tool call için hata mesajı ekle
+          messages.push({
+            role: 'assistant',
+            content: null,
+            tool_calls: [toolCall],
+          });
+          messages.push({
+            role: 'tool',
+            tool_call_id: toolCall.id,
+            content: JSON.stringify({
+              success: false,
+              error: `Security guardrail blocked this action: ${guardrailResult.reason}`,
+            }),
+          });
+          continue;
+        }
+
+        await auditLog(dbUserId, 'guardrail_tool_approved', 'agent', {
+          toolName,
+        }, req, 'approved');
       }
-
-      await auditLog(dbUserId, 'guardrail_tool_approved', 'agent', {
-        toolName,
-      }, req, 'approved');
 
       // Tool'u çalıştır (BLIND TOKEN INJECTION: token backend'de kalır)
       const toolResult = await executeTool(toolName, toolArgs, {

@@ -19,6 +19,12 @@ import { authApi } from '../services/api';
 export default function SettingsPage() {
   const { user, getAccessTokenSilently } = useAuth0();
   const { t, i18n } = useTranslation();
+  const tokenParams = {
+    authorizationParams: {
+      audience: import.meta.env.VITE_AUTH0_AUDIENCE || 'https://knowhy-api.local',
+      scope: 'openid profile email offline_access',
+    },
+  };
   const [gmailConnected, setGmailConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
@@ -29,7 +35,7 @@ export default function SettingsPage() {
 
   const fetchProfile = async () => {
     try {
-      const token = await getAccessTokenSilently();
+      const token = await getAccessTokenSilently(tokenParams);
       console.log('[DEBUG] Token obtained:', token ? `${token.substring(0, 50)}...` : 'NULL');
       console.log('[DEBUG] Token length:', token?.length);
       const data = await authApi.getProfile(token);
@@ -48,7 +54,7 @@ export default function SettingsPage() {
   const handleConnectGmail = async () => {
     setConnecting(true);
     try {
-      const token = await getAccessTokenSilently();
+      const token = await getAccessTokenSilently(tokenParams);
       const data = await authApi.connectGmail(token);
       if (data.success && data.connectionUrl) {
         window.open(data.connectionUrl, '_blank', 'width=600,height=700');
@@ -62,7 +68,7 @@ export default function SettingsPage() {
 
   const handleDisconnectGmail = async () => {
     try {
-      const token = await getAccessTokenSilently();
+      const token = await getAccessTokenSilently(tokenParams);
       await authApi.disconnectGmail(token);
       setGmailConnected(false);
       toast.success(t('gmail.notConnected'));
@@ -74,7 +80,7 @@ export default function SettingsPage() {
   const handleLanguageChange = async (lng) => {
     i18n.changeLanguage(lng);
     try {
-      const token = await getAccessTokenSilently();
+      const token = await getAccessTokenSilently(tokenParams);
       await authApi.updateLocale(token, lng);
     } catch {
       // Non-critical, UI already changed

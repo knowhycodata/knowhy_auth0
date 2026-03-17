@@ -10,6 +10,12 @@ import { chatApi } from '../services/api';
 export default function ChatPage() {
   const { user, getAccessTokenSilently } = useAuth0();
   const { t, i18n } = useTranslation();
+  const tokenParams = {
+    authorizationParams: {
+      audience: import.meta.env.VITE_AUTH0_AUDIENCE || 'https://knowhy-api.local',
+      scope: 'openid profile email offline_access',
+    },
+  };
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -30,7 +36,7 @@ export default function ChatPage() {
     setIsLoading(true);
 
     try {
-      const token = await getAccessTokenSilently();
+      const token = await getAccessTokenSilently(tokenParams);
       const data = await chatApi.sendMessage(token, {
         message: content.trim(),
         conversationId,
