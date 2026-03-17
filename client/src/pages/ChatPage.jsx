@@ -8,11 +8,12 @@ import clsx from 'clsx';
 import { chatApi } from '../services/api';
 
 export default function ChatPage() {
-  const { user, getAccessTokenSilently } = useAuth0();
+  const { user, getAccessTokenSilently, loginWithPopup } = useAuth0();
   const { t, i18n } = useTranslation();
+  const audience = import.meta.env.VITE_AUTH0_AUDIENCE || 'https://knowhy-api.local';
   const tokenParams = {
     authorizationParams: {
-      audience: import.meta.env.VITE_AUTH0_AUDIENCE || 'https://knowhy-api.local',
+      audience,
       scope: 'openid profile email offline_access',
     },
   };
@@ -20,12 +21,43 @@ export default function ChatPage() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [conversationId, setConversationId] = useState(null);
+  const [pendingStepUp, setPendingStepUp] = useState(null);
+  const [forceFreshToken, setForceFreshToken] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  const triggerStepUpPopup = async (stepUpRequest) => {
+    try {
+      await loginWithPopup({
+        authorizationParams: {
+          audience,
+          scope: 'openid profile email offline_access',
+          prompt: 'login',
+          max_age: 0,
+          acr_values: 'http://schemas.openid.net/pape/policies/2007/06/multi-factor',
+        },
+      });
+
+      const successMsg = i18n.language === 'tr'
+        ? `MFA doğrulaması tamamlandı (${stepUpRequest?.action || 'high-stakes action'}). İşlemi tekrar deneyebilirsiniz.`
+        : `MFA verification completed (${stepUpRequest?.action || 'high-stakes action'}). You can retry the action.`;
+      toast.success(successMsg);
+      // Bir sonraki API çağrısında cache dışı taze access token al.
+      setForceFreshToken(true);
+      setPendingStepUp(null);
+    } catch (error) {
+      const popupErr = error?.error || error?.message || 'step-up failed';
+      const blockedMsg = i18n.language === 'tr'
+        ? `MFA popup tamamlanamadı: ${popupErr}`
+        : `MFA popup could not complete: ${popupErr}`;
+      toast.error(blockedMsg);
+      setPendingStepUp(stepUpRequest || null);
+    }
+  };
 
   const sendMessage = async (content) => {
     if (!content.trim() || isLoading) return;
@@ -36,7 +68,12 @@ export default function ChatPage() {
     setIsLoading(true);
 
     try {
-      const token = await getAccessTokenSilently(tokenParams);
+      const tokenOptions = forceFreshToken
+        ? { ...tokenParams, cacheMode: 'off' }
+        : tokenParams;
+      const token = await getAccessTokenSilently(tokenOptions);
+      if (forceFreshToken) setForceFreshToken(false);
+
       const data = await chatApi.sendMessage(token, {
         message: content.trim(),
         conversationId,
@@ -46,6 +83,15 @@ export default function ChatPage() {
       if (data.success) {
         setConversationId(data.conversationId);
         setMessages((prev) => [...prev, data.message]);
+
+        if (data.stepUpRequest?.required) {
+          setPendingStepUp(data.stepUpRequest);
+          const promptMsg = i18n.language === 'tr'
+            ? 'Hassas işlem için Auth0 doğrulama popup penceresi açılıyor...'
+            : 'Opening Auth0 verification popup for this high-stakes action...';
+          toast(promptMsg);
+          await triggerStepUpPopup(data.stepUpRequest);
+        }
       }
     } catch (error) {
       const errMsg = error.data?.error || error.message || t('common.error');
@@ -105,6 +151,22 @@ export default function ChatPage() {
 
       {/* Input Area */}
       <div className="border-t border-dark-700 bg-dark-900/50 backdrop-blur-sm p-4">
+        {pendingStepUp && (
+          <div className="max-w-3xl mx-auto mb-3 p-3 rounded-lg border border-amber-500/30 bg-amber-500/10">
+            <p className="text-sm text-amber-100">
+              {i18n.language === 'tr'
+                ? 'Yüksek riskli işlem için ek doğrulama gerekiyor. Doğrulama popup penceresini açın.'
+                : 'Additional verification is required for this high-stakes action. Open the verification popup.'}
+            </p>
+            <button
+              type="button"
+              onClick={() => triggerStepUpPopup(pendingStepUp)}
+              className="btn-primary mt-2"
+            >
+              {i18n.language === 'tr' ? 'MFA Popup Aç' : 'Open MFA Popup'}
+            </button>
+          </div>
+        )}
         <form onSubmit={handleSubmit} className="max-w-3xl mx-auto flex gap-3">
           <input
             ref={inputRef}

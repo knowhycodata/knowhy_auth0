@@ -101,6 +101,12 @@ async function requireAuth(req, res, next) {
       email,
       permissions: typeof payload.scope === 'string' ? payload.scope.split(' ') : [],
       rawToken: token,
+      stepUpClaims: {
+        amr: Array.isArray(payload.amr) ? payload.amr : [],
+        acr: typeof payload.acr === 'string' ? payload.acr : null,
+        authTime: Number.isFinite(Number(payload.auth_time)) ? Number(payload.auth_time) : null,
+        issuedAt: Number.isFinite(Number(payload.iat)) ? Number(payload.iat) : null,
+      },
     };
 
     // Upsert user in database

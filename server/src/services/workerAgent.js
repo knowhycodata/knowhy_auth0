@@ -53,11 +53,11 @@ Rules:
  * 
  * @param {string} userMessage - Kullanıcının mesajı
  * @param {Array} conversationHistory - Önceki mesajlar
- * @param {object} context - { auth0UserId, dbUserId, gmailConnected, locale, req }
- * @returns {{ content: string, toolResults: Array, guardrailFlags: Array }}
+ * @param {object} context - { auth0UserId, dbUserId, gmailConnected, locale, stepUpContext, req }
+ * @returns {{ content: string, toolResults: Array, guardrailFlags: Array, stepUpRequest?: object }}
  */
 async function processMessage(userMessage, conversationHistory, context) {
-  const { auth0UserId, dbUserId, gmailConnected, locale, req } = context;
+  const { auth0UserId, dbUserId, gmailConnected, locale, stepUpContext, req } = context;
 
   const systemPrompt = buildSystemPrompt(locale || 'en');
 
@@ -178,6 +178,7 @@ async function processMessage(userMessage, conversationHistory, context) {
         auth0UserId,
         dbUserId,
         gmailConnected,
+        stepUpContext,
         req,
       });
 
@@ -206,7 +207,17 @@ async function processMessage(userMessage, conversationHistory, context) {
           ? `Bu işlem (${toolName}) ek güvenlik doğrulaması (MFA) gerektirmektedir. Lütfen cihazınızdaki onay isteğini kabul edin.`
           : `This action (${toolName}) requires additional security verification (MFA). Please approve the request on your device.`;
 
-        return { content: stepUpMsg, toolResults, guardrailFlags };
+        return {
+          content: stepUpMsg,
+          toolResults,
+          guardrailFlags,
+          stepUpRequest: {
+            required: true,
+            action: toolName,
+            pendingArgs: toolResult.pendingArgs || toolArgs,
+            message: stepUpMsg,
+          },
+        };
       }
     }
   }

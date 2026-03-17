@@ -167,6 +167,18 @@ function parseGuardrailResponse(responseContent, options = {}) {
         reason: reasonMatch[1],
       };
     }
+
+    // Bazı modeller JSON'u yarım kesebiliyor (özellikle reason alanı tamamlanmadan).
+    // approved alanını yakalayabildiysek kararı koru.
+    if (approvedMatch) {
+      const approved = approvedMatch[1].toLowerCase() === 'true';
+      return {
+        approved,
+        reason: approved
+          ? 'Guardrail approved (reason field missing due partial response).'
+          : 'Guardrail rejected (reason field missing due partial response).',
+      };
+    }
   } catch {
     // intentional no-op
   }

@@ -18,11 +18,11 @@ const { auditLog } = require('../middleware/auditLog');
  * Tool call'ı çalıştır.
  * @param {string} toolName - Tool adı
  * @param {object} args - Tool parametreleri (LLM'den gelen JSON)
- * @param {object} context - { auth0UserId, dbUserId, gmailConnected, req }
+ * @param {object} context - { auth0UserId, dbUserId, gmailConnected, stepUpContext, req }
  * @returns {object} - Tool sonucu (LLM'e gönderilecek)
  */
 async function executeTool(toolName, args, context) {
-  const { auth0UserId, dbUserId, gmailConnected, req } = context;
+  const { auth0UserId, dbUserId, gmailConnected, stepUpContext, req } = context;
 
   logger.info('Executing tool', { toolName, userId: auth0UserId });
 
@@ -36,15 +36,50 @@ async function executeTool(toolName, args, context) {
 
   // HIGH-STAKES ACTION kontrolü
   if (isHighStakesAction(toolName)) {
-    await auditLog(dbUserId, `tool_${toolName}_stepup_required`, 'agent', { args }, req);
+    const stepUpApproved = !!stepUpContext?.approved;
 
-    return {
-      success: false,
-      requiresStepUp: true,
-      action: toolName,
-      message: 'This action requires additional authentication (MFA). Please approve the request on your device.',
-      pendingArgs: args,
-    };
+    if (stepUpApproved) {
+      logger.info('Step-up verification satisfied for high-stakes action', {
+        toolName,
+        userId: auth0UserId,
+        authAgeSeconds: stepUpContext?.authAgeSeconds,
+        mfaDetected: stepUpContext?.mfaDetected,
+      });
+    } else {
+      await auditLog(
+        dbUserId,
+        `tool_${toolName}_stepup_required`,
+        'agent',
+        {
+          args,
+          reason: stepUpContext?.reason || 'stepup_missing',
+          authAgeSeconds: stepUpContext?.authAgeSeconds,
+          mfaDetected: stepUpContext?.mfaDetected,
+          requireMfaClaim: stepUpContext?.requireMfaClaim,
+        },
+        req
+      );
+
+      return {
+        success: false,
+        requiresStepUp: true,
+        action: toolName,
+        message: 'This action requires additional authentication (MFA). Please complete verification in the popup and retry.',
+        pendingArgs: args,
+      };
+    }
+
+    await auditLog(
+      dbUserId,
+      `tool_${toolName}_stepup_verified`,
+      'agent',
+      {
+        authAgeSeconds: stepUpContext?.authAgeSeconds,
+        mfaDetected: stepUpContext?.mfaDetected,
+      },
+      req,
+      'approved'
+    );
   }
 
   try {

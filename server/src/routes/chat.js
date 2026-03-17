@@ -8,6 +8,7 @@ const { v4: uuidv4 } = require('uuid');
 const sanitizeHtml = require('sanitize-html');
 const { processMessage } = require('../services/workerAgent');
 const { hasGoogleConnection } = require('../services/tokenVault');
+const { buildStepUpContextFromClaims } = require('../services/stepUpContext');
 
 // POST /api/chat - Send a message to the AI agent
 router.post('/', requireAuth, async (req, res) => {
@@ -92,15 +93,18 @@ router.post('/', requireAuth, async (req, res) => {
     }
 
     // Worker Agent + Guardrail Agent ile mesajı işle
+    const stepUpContext = buildStepUpContextFromClaims(req.user.stepUpClaims || {});
     const agentResult = await processMessage(sanitizedMessage, conversationHistory, {
       auth0UserId: req.user.sub,
       dbUserId: req.dbUser.id,
       gmailConnected,
       locale: locale || req.dbUser.locale || 'en',
+      stepUpContext,
       req,
     });
 
     const assistantResponse = agentResult.content;
+    const stepUpRequest = agentResult.stepUpRequest || null;
 
     // Save assistant response with metadata
     const metadata = {};
@@ -108,10 +112,15 @@ router.post('/', requireAuth, async (req, res) => {
       metadata.toolResults = agentResult.toolResults.map((tr) => ({
         tool: tr.tool,
         success: tr.result?.success,
+        requiresStepUp: !!tr.result?.requiresStepUp,
+        action: tr.result?.action || null,
       }));
     }
     if (agentResult.guardrailFlags.length > 0) {
       metadata.guardrailFlags = agentResult.guardrailFlags;
+    }
+    if (stepUpRequest) {
+      metadata.stepUpRequest = stepUpRequest;
     }
 
     await query(
@@ -133,6 +142,7 @@ router.post('/', requireAuth, async (req, res) => {
         content: assistantResponse,
       },
       ...(agentResult.guardrailFlags.length > 0 && { guardrailFlags: agentResult.guardrailFlags }),
+      ...(stepUpRequest && { stepUpRequest }),
     });
   } catch (error) {
     logger.error('Chat error:', error);
