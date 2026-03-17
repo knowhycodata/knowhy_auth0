@@ -7,6 +7,7 @@ const { query } = require('../db');
 const { v4: uuidv4 } = require('uuid');
 const sanitizeHtml = require('sanitize-html');
 const { processMessage } = require('../services/workerAgent');
+const { hasGoogleConnection } = require('../services/tokenVault');
 
 // POST /api/chat - Send a message to the AI agent
 router.post('/', requireAuth, async (req, res) => {
@@ -71,11 +72,30 @@ router.post('/', requireAuth, async (req, res) => {
     // Son mesajı (şu anda eklenen user mesajını) çıkar, çünkü worker'a ayrıca gönderiyoruz
     const conversationHistory = historyResult.rows.slice(0, -1);
 
+    // Token Vault'tan gerçek Gmail bağlantı durumunu al ve DB ile senkronize et.
+    let gmailConnected = req.dbUser.gmail_connected;
+    try {
+      const vaultConnected = await hasGoogleConnection(req.user.sub);
+      gmailConnected = vaultConnected;
+
+      if (vaultConnected !== req.dbUser.gmail_connected) {
+        await query(
+          'UPDATE users SET gmail_connected = $1, updated_at = NOW() WHERE id = $2',
+          [vaultConnected, req.dbUser.id]
+        );
+      }
+    } catch (vaultError) {
+      logger.warn('Token Vault status check failed on chat route:', {
+        error: vaultError.message,
+        userSub: req.user.sub,
+      });
+    }
+
     // Worker Agent + Guardrail Agent ile mesajı işle
     const agentResult = await processMessage(sanitizedMessage, conversationHistory, {
       auth0UserId: req.user.sub,
       dbUserId: req.dbUser.id,
-      gmailConnected: req.dbUser.gmail_connected,
+      gmailConnected,
       locale: locale || req.dbUser.locale || 'en',
       req,
     });

@@ -91,7 +91,6 @@ router.post('/connect-gmail', requireAuth, async (req, res) => {
       `redirect_uri=${encodeURIComponent(gmailCallbackUrl)}&` +
       `access_type=offline&` +
       `prompt=consent&` +
-      `approval_prompt=force&` +
       `include_granted_scopes=true`;
 
     await auditLog(req.dbUser.id, 'gmail_connect_initiated', 'gmail', null, req);
