@@ -94,6 +94,7 @@ async function checkStepUpStatus(authReqId) {
     logger.info('Step-up auth approved', { authReqId });
     return {
       status: 'approved',
+      idToken: response.data.id_token || null,
       accessToken: response.data.access_token,
       expiresIn: response.data.expires_in,
     };

@@ -63,7 +63,11 @@ router.post('/poll', requireAuth, async (req, res) => {
     res.json({
       success: true,
       status: result.status,
-      ...(result.status === 'approved' && { stepUpToken: result.accessToken }),
+      ...(result.status === 'approved' && {
+        stepUpToken: result.idToken || result.accessToken,
+        stepUpIdToken: result.idToken || null,
+        stepUpAccessToken: result.accessToken || null,
+      }),
     });
   } catch (error) {
     logger.error('Step-up poll error:', error);

@@ -5,6 +5,19 @@ const { requireAuth } = require('../middleware/auth');
 const { auditLog } = require('../middleware/auditLog');
 const gmailService = require('../services/gmail');
 const { hasGoogleConnection } = require('../services/tokenVault');
+const { verifyStepUpToken } = require('../services/stepUpTokenVerifier');
+
+function buildStepUpFailureResponse(req, action, stepUpReason) {
+  return {
+    success: false,
+    requiresStepUp: true,
+    action,
+    stepUpReason,
+    message: req.t
+      ? req.t('email.stepUpInvalid')
+      : 'Step-up verification is invalid or expired. Please approve MFA and try again.',
+  };
+}
 
 // GET /api/email/status - Check Gmail connection status
 router.get('/status', requireAuth, async (req, res) => {
@@ -123,7 +136,29 @@ router.post('/send', requireAuth, async (req, res) => {
       });
     }
 
-    // TODO: Adım 5 - stepUpToken doğrulaması (CIBA flow)
+    const stepUpVerification = await verifyStepUpToken(stepUpToken, {
+      expectedUserSub: req.user.sub,
+    });
+
+    if (!stepUpVerification.valid) {
+      await auditLog(req.dbUser.id, 'email_send_stepup_rejected', 'gmail', {
+        to,
+        subject,
+        stepUpReason: stepUpVerification.reason,
+      }, req, 'rejected');
+
+      return res.status(403).json(
+        buildStepUpFailureResponse(req, 'send_email', stepUpVerification.reason)
+      );
+    }
+
+    await auditLog(req.dbUser.id, 'email_send_stepup_verified', 'gmail', {
+      to,
+      subject,
+      stepUpReason: stepUpVerification.reason,
+      authAgeSeconds: stepUpVerification.authAgeSeconds,
+      mfaDetected: stepUpVerification.mfaDetected,
+    }, req, 'approved');
 
     await auditLog(req.dbUser.id, 'email_sent', 'gmail', { to, subject }, req);
 
@@ -168,7 +203,27 @@ router.post('/delete', requireAuth, async (req, res) => {
       });
     }
 
-    // TODO: Adım 5 - stepUpToken doğrulaması (CIBA flow)
+    const stepUpVerification = await verifyStepUpToken(stepUpToken, {
+      expectedUserSub: req.user.sub,
+    });
+
+    if (!stepUpVerification.valid) {
+      await auditLog(req.dbUser.id, 'email_delete_stepup_rejected', 'gmail', {
+        emailId,
+        stepUpReason: stepUpVerification.reason,
+      }, req, 'rejected');
+
+      return res.status(403).json(
+        buildStepUpFailureResponse(req, 'delete_email', stepUpVerification.reason)
+      );
+    }
+
+    await auditLog(req.dbUser.id, 'email_delete_stepup_verified', 'gmail', {
+      emailId,
+      stepUpReason: stepUpVerification.reason,
+      authAgeSeconds: stepUpVerification.authAgeSeconds,
+      mfaDetected: stepUpVerification.mfaDetected,
+    }, req, 'approved');
 
     await auditLog(req.dbUser.id, 'email_deleted', 'gmail', { emailId }, req);
 

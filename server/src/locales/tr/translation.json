@@ -18,7 +18,8 @@
     "connected": "Gmail bağlı",
     "notConnected": "Gmail bağlı değil",
     "connectFirst": "Lütfen önce Gmail'i bağlayın",
-    "stepUpRequired": "Bu işlem ek kimlik doğrulaması (MFA) gerektirir. Lütfen cihazınızdaki isteği onaylayın."
+    "stepUpRequired": "Bu işlem ek kimlik doğrulaması (MFA) gerektirir. Lütfen cihazınızdaki isteği onaylayın.",
+    "stepUpInvalid": "Step-up doğrulaması geçersiz veya süresi dolmuş. Lütfen MFA onayını yeniden verin."
   },
   "chat": {
     "placeholder": "Yapay zeka ajan sistemi yapılandırılıyor. Lütfen kısa bir süre sonra tekrar deneyin."

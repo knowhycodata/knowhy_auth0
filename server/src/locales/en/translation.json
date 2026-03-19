@@ -18,7 +18,8 @@
     "connected": "Gmail is connected",
     "notConnected": "Gmail is not connected",
     "connectFirst": "Please connect Gmail first",
-    "stepUpRequired": "This action requires additional authentication (MFA). Please approve the request on your device."
+    "stepUpRequired": "This action requires additional authentication (MFA). Please approve the request on your device.",
+    "stepUpInvalid": "Step-up verification is invalid or expired. Please approve MFA and try again."
   },
   "chat": {
     "placeholder": "AI agent system is being configured. Please check back soon."
