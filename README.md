@@ -136,6 +136,25 @@ INPUT: userMessage, accessToken, locale, optional(stepUpChallengeId)
    - frontend'e güvenli cevap dönülür
 ```
 
+```mermaid
+flowchart TD
+    U["Kullanıcı Mesajı"] --> A["requireAuth"]
+    A --> B["chat route sanitize ve history"]
+    B --> C["Token Vault bağlantı kontrolü"]
+    C --> D["Step-up context oluştur"]
+    D --> E["Worker Agent"]
+    E --> F{"Tool call var mı"}
+    F -- "Hayır" --> G["Assistant cevabı"]
+    F -- "Evet" --> H["Guardrail kontrolü"]
+    H --> I["Tool Executor"]
+    I --> J{"Step-up gerekli mi"}
+    J -- "Evet" --> K["challengeId ve expiresAt dön"]
+    J -- "Hayır" --> L["Tool sonucu context'e ekle"]
+    L --> E
+    G --> M["DB metadata kaydı ve frontend response"]
+    K --> M
+```
+
 ### Akış 2: Blind Token Injection (Zero Token Exposure)
 
 ```text
@@ -150,6 +169,17 @@ INPUT: auth0UserId
    - google-oauth2 identity access_token alınır
 4) Gmail API çağrısı backend içinde Authorization: Bearer <token> ile yapılır
 5) LLM/frontend'e sadece iş sonucu döner (token ASLA dönmez)
+```
+
+```mermaid
+flowchart TD
+    A["Tool Executor"] --> B["gmailService.getGmailHeaders"]
+    B --> C["tokenVault.getFederatedToken"]
+    C --> D["Auth0 M2M token al ve cachele"]
+    D --> E["Auth0 Management API identities oku"]
+    E --> F["google-oauth2 access token al"]
+    F --> G["Backend içinde Gmail API çağrısı"]
+    G --> H["LLM ve frontend'e yalnızca işlem sonucu dön"]
 ```
 
 ### Akış 3: High-Stakes İşlem + Step-up MFA
@@ -172,6 +202,22 @@ Yüksek riskli tool'lar: `send_email`, `delete_email`, `delete_latest_email`.
    - challenge taze ise high-stakes tool çalışır
 ```
 
+```mermaid
+flowchart TD
+    A["Worker high-stakes tool ister"] --> B["Guardrail kontrolü"]
+    B --> C{"Approved"}
+    C -- "Hayır" --> D["İşlemi blokla ve audit log yaz"]
+    C -- "Evet" --> E["executeTool"]
+    E --> F["consumeStepUpChallenge ve policy kontrolü"]
+    F --> G{"Step-up doğrulandı mı"}
+    G -- "Evet" --> H["High-stakes tool'u çalıştır"]
+    G -- "Hayır" --> I["createStepUpChallenge üret"]
+    I --> J["requiresStepUp ile challenge dön"]
+    J --> K["Frontend MFA modal ve popup"]
+    K --> L["stepUpChallengeId ile otomatik retry"]
+    L --> E
+```
+
 ### Akış 4: Guardrail Karar Algoritması (Defense-in-Depth)
 
 ```text
@@ -183,6 +229,17 @@ Yüksek riskli tool'lar: `send_email`, `delete_email`, `delete_latest_email`.
 4) Böylece güvenlik ve kullanılabilirlik dengesi sağlanır
 ```
 
+```mermaid
+flowchart TD
+    A["High-stakes tool call"] --> B["Guardrail inspect"]
+    B --> C{"Guardrail yanıtı"}
+    C -- "approved=true" --> D["İşleme devam"]
+    C -- "approved=false" --> E["İşlemi reddet ve audit log yaz"]
+    C -- "servis hatası" --> F{"Aksiyon seviyesi"}
+    F -- "high-risk" --> G["Fail-closed: reddet"]
+    F -- "low-risk" --> H["Fail-open: izin ver"]
+```
+
 ### Akış 5: Asenkron Gece Özetleme (Continuous Agent Pattern)
 
 ```text
@@ -191,6 +248,15 @@ Yüksek riskli tool'lar: `send_email`, `delete_email`, `delete_latest_email`.
 3) Her kullanıcı için Gmail'den son 24 saat e-postaları okunur
 4) LLM ile kısa özet üretilir
 5) email_summaries tablosuna upsert edilir
+```
+
+```mermaid
+flowchart TD
+    A["node-cron 03:00 tetiklenir"] --> B["gmail_connected TRUE kullanıcıları çek"]
+    B --> C["Her kullanıcı için INBOX newer_than:1d oku"]
+    C --> D["LLM ile özet üret"]
+    D --> E["email_summaries tablosuna upsert"]
+    E --> F["Job log ve tamamla"]
 ```
 
 ### Yarışma Jüri Kriteri Eşlemesi
