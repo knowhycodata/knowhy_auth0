@@ -6,7 +6,7 @@ builder = "nixpacks"
 buildCommand = "npm ci && npm run build"
 
 [deploy]
-# Static site - bagimlilik gerektirmeyen minimal Node server
+# Docker runtime static server ile process.env.PORT uzerinden acilir
 startCommand = "node static-server.cjs"
 healthcheckPath = "/"
 healthcheckTimeout = 300

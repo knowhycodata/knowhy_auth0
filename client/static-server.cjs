@@ -2,7 +2,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-const port = Number(process.env.PORT || 3000);
+const port = Number(process.env.PORT || 80);
 const distDir = path.join(__dirname, 'dist');
 
 const mimeTypes = {
@@ -67,6 +67,5 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(port, '0.0.0.0', () => {
-  // keep log simple for platform logs
   console.log(`Static frontend running on port ${port}`);
 });

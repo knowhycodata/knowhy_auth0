@@ -16,8 +16,10 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM nginx:alpine
-COPY --from=builder /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+FROM node:20-alpine
+WORKDIR /app
+COPY --from=builder /app/dist ./dist
+COPY static-server.cjs ./static-server.cjs
+ENV NODE_ENV=production
 EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["node", "static-server.cjs"]
