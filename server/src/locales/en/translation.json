@@ -11,7 +11,8 @@
   "auth": {
     "gmailConnectPrompt": "Please authorize Gmail access",
     "gmailConnected": "Gmail connected successfully",
-    "gmailDisconnected": "Gmail disconnected"
+    "gmailDisconnected": "Gmail disconnected",
+    "gmailDisconnectFailed": "Gmail could not be disconnected securely. Please try again."
   },
   "email": {
     "connected": "Gmail is connected",

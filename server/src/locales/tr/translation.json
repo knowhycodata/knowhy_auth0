@@ -11,7 +11,8 @@
   "auth": {
     "gmailConnectPrompt": "Lütfen Gmail erişimini yetkilendirin",
     "gmailConnected": "Gmail başarıyla bağlandı",
-    "gmailDisconnected": "Gmail bağlantısı kesildi"
+    "gmailDisconnected": "Gmail bağlantısı kesildi",
+    "gmailDisconnectFailed": "Gmail bağlantısı güvenli şekilde kesilemedi. Lütfen tekrar deneyin."
   },
   "email": {
     "connected": "Gmail bağlı",

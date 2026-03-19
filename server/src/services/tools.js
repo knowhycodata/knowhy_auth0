@@ -108,6 +108,18 @@ const TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'delete_latest_email',
+      description: 'Move the latest inbox email to trash. Use this when the user says things like "delete the latest email" without providing an explicit ID. This is a HIGH-STAKES action and requires user MFA approval.',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'summarize_emails',
       description: 'Summarize the user\'s recent emails to give a quick overview of their inbox.',
       parameters: {
@@ -130,7 +142,7 @@ const TOOLS = [
 ];
 
 // High-stakes actions that require Step-up Auth (MFA)
-const HIGH_STAKES_TOOLS = ['send_email', 'delete_email'];
+const HIGH_STAKES_TOOLS = ['send_email', 'delete_email', 'delete_latest_email'];
 
 function isHighStakesAction(toolName) {
   return HIGH_STAKES_TOOLS.includes(toolName);

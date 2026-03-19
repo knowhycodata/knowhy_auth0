@@ -37,6 +37,8 @@ export default function App() {
           element={isAuthenticated ? <Layout /> : <Navigate to="/login" replace />}
         >
           <Route index element={<ChatPage />} />
+          <Route path="chat/new" element={<ChatPage />} />
+          <Route path="chat/:conversationId" element={<ChatPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

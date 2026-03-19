@@ -5,7 +5,7 @@ const logger = require('../utils/logger');
 const { requireAuth } = require('../middleware/auth');
 const { auditLog } = require('../middleware/auditLog');
 const { query } = require('../db');
-const { hasGoogleConnection } = require('../services/tokenVault');
+const { hasGoogleConnection, disconnectGoogleConnection } = require('../services/tokenVault');
 
 const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN;
 const AUTH0_CLIENT_ID = process.env.AUTH0_CLIENT_ID;
@@ -80,7 +80,11 @@ router.post('/connect-gmail', requireAuth, async (req, res) => {
     // This endpoint returns the Auth0 authorization URL for Google connection
     // The actual token is stored in Auth0 Token Vault, never in our DB
     const oidcScope = 'openid profile email';
-    const googleConnectionScope = 'https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.send';
+    const googleConnectionScope = [
+      'https://www.googleapis.com/auth/gmail.readonly',
+      'https://www.googleapis.com/auth/gmail.send',
+      'https://www.googleapis.com/auth/gmail.modify',
+    ].join(',');
 
     const connectionUrl = `https://${AUTH0_DOMAIN}/authorize?` +
       `response_type=code&` +
@@ -129,6 +133,22 @@ router.post('/gmail-callback', requireAuth, async (req, res) => {
 // POST /api/auth/disconnect-gmail - Disconnect Gmail
 router.post('/disconnect-gmail', requireAuth, async (req, res) => {
   try {
+    const disconnectResult = await disconnectGoogleConnection(req.user.sub);
+    if (!disconnectResult.disconnected) {
+      logger.warn('Gmail disconnect blocked: Token Vault unlink failed', {
+        userSub: req.user.sub,
+        reason: disconnectResult.reason,
+        status: disconnectResult.status,
+      });
+
+      return res.status(409).json({
+        success: false,
+        error: req.t
+          ? req.t('auth.gmailDisconnectFailed')
+          : 'Failed to disconnect Gmail from Token Vault',
+      });
+    }
+
     await query(
       'UPDATE users SET gmail_connected = FALSE, updated_at = NOW() WHERE id = $1',
       [req.dbUser.id]
@@ -138,6 +158,7 @@ router.post('/disconnect-gmail', requireAuth, async (req, res) => {
 
     res.json({
       success: true,
+      gmailConnected: false,
       message: req.t ? req.t('auth.gmailDisconnected') : 'Gmail disconnected',
     });
   } catch (error) {

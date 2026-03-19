@@ -10,7 +10,15 @@ function resolveGmailApiError(error, fallbackMessage) {
   const detailReason = apiError?.details?.[0]?.reason;
 
   if (topReason === 'insufficientPermissions' || detailReason === 'ACCESS_TOKEN_SCOPE_INSUFFICIENT') {
-    return 'Gmail izinleri yetersiz. Lütfen Ayarlar > Gmail Bağla adımından yeniden bağlayıp izinleri onaylayın.';
+    return 'Gmail izinleri yetersiz. Silme için gmail.modify scope gereklidir. Lütfen Ayarlar > Gmail bağlantısını kaldırıp yeniden bağlayın ve izinleri tekrar onaylayın.';
+  }
+
+  if (topReason === 'notFound') {
+    return 'Seçilen e-posta Gmail üzerinde bulunamadı. E-posta daha önce taşınmış/silinmiş olabilir. Gelen kutusunu yenileyip tekrar deneyin.';
+  }
+
+  if (topReason === 'invalidArgument') {
+    return 'E-posta ID değeri geçersiz.';
   }
 
   return fallbackMessage;
@@ -63,7 +71,9 @@ async function listEmails(auth0UserId, options = {}) {
       (msg) => getEmailDetail(auth0UserId, msg.id, headers)
     );
 
-    const emails = await Promise.all(emailPromises);
+    const emails = (await Promise.all(emailPromises))
+      .filter(Boolean)
+      .sort((a, b) => Number(b.internalDate || 0) - Number(a.internalDate || 0));
 
     logger.info('Emails listed successfully', {
       userId: auth0UserId,
@@ -72,7 +82,7 @@ async function listEmails(auth0UserId, options = {}) {
 
     // ÖNEMLI: Sadece güvenli metadata döndür, ham token bilgisi ASLA yer almaz
     return {
-      emails: emails.filter(Boolean),
+      emails,
       resultSizeEstimate: response.data.resultSizeEstimate || emails.length,
     };
   } catch (error) {
@@ -107,6 +117,7 @@ async function getEmailDetail(auth0UserId, messageId, existingHeaders = null) {
     return {
       id: response.data.id,
       threadId: response.data.threadId,
+      internalDate: Number(response.data.internalDate || 0),
       snippet: response.data.snippet,
       subject: headerMap.subject || '(No subject)',
       from: headerMap.from || 'Unknown',

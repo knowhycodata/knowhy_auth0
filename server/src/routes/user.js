@@ -4,6 +4,77 @@ const logger = require('../utils/logger');
 const { requireAuth } = require('../middleware/auth');
 const { query } = require('../db');
 
+const STEP_UP_ALLOWED_ACTIONS = new Set(['send_email', 'delete_email', 'delete_latest_email']);
+const STEP_UP_CHALLENGE_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function sanitizeStepUpRequest(stepUpRequest) {
+  if (!stepUpRequest || stepUpRequest.required !== true) return null;
+
+  const action = String(stepUpRequest.action || '').trim().toLowerCase();
+  if (!STEP_UP_ALLOWED_ACTIONS.has(action)) return null;
+
+  const challengeId = String(stepUpRequest.challengeId || '').trim();
+  if (!STEP_UP_CHALLENGE_ID_REGEX.test(challengeId)) return null;
+
+  const expiresAt = Number(stepUpRequest.expiresAt);
+  if (!Number.isFinite(expiresAt) || expiresAt <= 0) return null;
+
+  const message = typeof stepUpRequest.message === 'string'
+    ? stepUpRequest.message.slice(0, 600)
+    : '';
+
+  return {
+    required: true,
+    action,
+    challengeId,
+    expiresAt: Math.floor(expiresAt),
+    message,
+  };
+}
+
+function sanitizeMessageMetadata(metadata) {
+  if (!metadata || typeof metadata !== 'object') return null;
+
+  const safeMetadata = {};
+
+  if (Array.isArray(metadata.toolResults)) {
+    safeMetadata.toolResults = metadata.toolResults.map((item) => ({
+      tool: String(item?.tool || ''),
+      success: !!item?.success,
+      requiresStepUp: !!item?.requiresStepUp,
+      action: item?.action ? String(item.action) : null,
+    }));
+  }
+
+  if (Array.isArray(metadata.guardrailFlags)) {
+    safeMetadata.guardrailFlags = metadata.guardrailFlags.map((item) => ({
+      type: String(item?.type || ''),
+      tool: item?.tool ? String(item.tool) : null,
+      reason: item?.reason ? String(item.reason).slice(0, 300) : null,
+    }));
+  }
+
+  const stepUpRequest = sanitizeStepUpRequest(metadata.stepUpRequest);
+  if (stepUpRequest) {
+    safeMetadata.stepUpRequest = stepUpRequest;
+  }
+
+  return Object.keys(safeMetadata).length > 0 ? safeMetadata : null;
+}
+
+function parseMetadata(metadata) {
+  if (!metadata) return null;
+  if (typeof metadata === 'string') {
+    try {
+      return JSON.parse(metadata);
+    } catch {
+      return null;
+    }
+  }
+  if (typeof metadata === 'object') return metadata;
+  return null;
+}
+
 // GET /api/user/conversations - List user conversations
 router.get('/conversations', requireAuth, async (req, res) => {
   try {
@@ -46,7 +117,19 @@ router.get('/conversations/:id/messages', requireAuth, async (req, res) => {
       [id]
     );
 
-    res.json({ success: true, messages: messages.rows });
+    const sanitizedMessages = messages.rows.map((msg) => {
+      const parsedMetadata = parseMetadata(msg.metadata);
+      const metadata = sanitizeMessageMetadata(parsedMetadata);
+      const stepUpRequest = sanitizeStepUpRequest(parsedMetadata?.stepUpRequest);
+
+      return {
+        ...msg,
+        metadata,
+        ...(stepUpRequest && { stepUpRequest }),
+      };
+    });
+
+    res.json({ success: true, messages: sanitizedMessages });
   } catch (error) {
     logger.error('Messages fetch error:', error);
     res.status(500).json({ success: false, error: 'Failed to fetch messages' });

@@ -21,6 +21,8 @@
     "placeholder": "Type your message...",
     "send": "Send",
     "newChat": "New Chat",
+    "noHistory": "No chat history yet.",
+    "historyLoadError": "Could not load chat history.",
     "thinking": "Thinking...",
     "welcomeTitle": "Hello, {{name}}!",
     "welcomeMessage": "I'm your AI email assistant. I can help you read, summarize, and manage your Gmail inbox. What would you like to do?",

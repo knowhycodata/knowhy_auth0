@@ -10,10 +10,38 @@ const { processMessage } = require('../services/workerAgent');
 const { hasGoogleConnection } = require('../services/tokenVault');
 const { buildStepUpContextFromClaims } = require('../services/stepUpContext');
 
+const STEP_UP_ALLOWED_ACTIONS = new Set(['send_email', 'delete_email', 'delete_latest_email']);
+const STEP_UP_CHALLENGE_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function sanitizeStepUpRequest(stepUpRequest) {
+  if (!stepUpRequest || stepUpRequest.required !== true) return null;
+
+  const action = String(stepUpRequest.action || '').trim().toLowerCase();
+  if (!STEP_UP_ALLOWED_ACTIONS.has(action)) return null;
+
+  const challengeId = String(stepUpRequest.challengeId || '').trim();
+  if (!STEP_UP_CHALLENGE_ID_REGEX.test(challengeId)) return null;
+
+  const expiresAt = Number(stepUpRequest.expiresAt);
+  if (!Number.isFinite(expiresAt) || expiresAt <= 0) return null;
+
+  const message = typeof stepUpRequest.message === 'string'
+    ? stepUpRequest.message.slice(0, 600)
+    : '';
+
+  return {
+    required: true,
+    action,
+    challengeId,
+    expiresAt: Math.floor(expiresAt),
+    message,
+  };
+}
+
 // POST /api/chat - Send a message to the AI agent
 router.post('/', requireAuth, async (req, res) => {
   try {
-    const { message, conversationId, locale } = req.body;
+    const { message, conversationId, locale, stepUpChallengeId } = req.body;
 
     if (!message || typeof message !== 'string' || message.trim().length === 0) {
       return res.status(400).json({
@@ -93,10 +121,14 @@ router.post('/', requireAuth, async (req, res) => {
     }
 
     // Worker Agent + Guardrail Agent ile mesajı işle
-    const stepUpContext = buildStepUpContextFromClaims(req.user.stepUpClaims || {});
+    const stepUpContext = buildStepUpContextFromClaims(
+      req.user.stepUpClaims || {},
+      stepUpChallengeId || null
+    );
     const agentResult = await processMessage(sanitizedMessage, conversationHistory, {
       auth0UserId: req.user.sub,
       dbUserId: req.dbUser.id,
+      userEmail: req.user.email,
       gmailConnected,
       locale: locale || req.dbUser.locale || 'en',
       stepUpContext,
@@ -104,7 +136,7 @@ router.post('/', requireAuth, async (req, res) => {
     });
 
     const assistantResponse = agentResult.content;
-    const stepUpRequest = agentResult.stepUpRequest || null;
+    const stepUpRequest = sanitizeStepUpRequest(agentResult.stepUpRequest);
 
     // Save assistant response with metadata
     const metadata = {};
@@ -140,6 +172,7 @@ router.post('/', requireAuth, async (req, res) => {
       message: {
         role: 'assistant',
         content: assistantResponse,
+        ...(stepUpRequest && { stepUpRequest }),
       },
       ...(agentResult.guardrailFlags.length > 0 && { guardrailFlags: agentResult.guardrailFlags }),
       ...(stepUpRequest && { stepUpRequest }),

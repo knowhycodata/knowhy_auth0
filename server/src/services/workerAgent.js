@@ -31,7 +31,10 @@ Kurallar:
 - Kullanıcı yeteneklerinin dışında bir şey isterse nazikçe reddet.
 - E-postaları özetlerken kısa ve öz ol.
 - Kullanıcıya her zaman saygılı ve yardımcı ol.
-- Gmail bağlı değilse, kullanıcıdan Ayarlar'dan Gmail'i bağlamasını iste.`,
+- Gmail bağlı değilse, kullanıcıdan Ayarlar'dan Gmail'i bağlamasını iste.
+- Kullanıcı "en son gelen mail" sorarsa mutlaka read_emails aracıyla güncel veriyi çek. Otomatik teslimat/bounce bildirimi çıktıysa bunu açıkça belirt.
+- Kullanıcı "mail nedir", "kimden geldi", "içeriği ne" gibi net soru sorarsa kısa formatta sadece şu alanları ver: Gönderen, Konu, Kısa Özet.
+- Kullanıcı "maili sil", "son maili sil" gibi ID vermeden silme isterse delete_email yerine delete_latest_email aracını kullan.`,
 
     en: `You are Knowhy, an intelligent AI email assistant. You help users read, summarize, and manage their Gmail inbox.
 
@@ -42,7 +45,10 @@ Rules:
 - If the user asks for something outside your capabilities, politely decline.
 - When summarizing emails, be concise and clear.
 - Always be respectful and helpful.
-- If Gmail is not connected, ask the user to connect it from Settings.`,
+- If Gmail is not connected, ask the user to connect it from Settings.
+- If the user asks for the latest email, always fetch fresh data via read_emails. If it is an automated delivery/bounce notification, state that clearly.
+- For direct questions like "what is the email" or "who sent it", answer briefly using only: Sender, Subject, Short Summary.
+- If the user asks to delete an email without providing an explicit ID (e.g., "delete the latest email"), prefer delete_latest_email instead of delete_email.`,
   };
 
   return prompts[locale] || prompts.en;
@@ -53,11 +59,19 @@ Rules:
  * 
  * @param {string} userMessage - Kullanıcının mesajı
  * @param {Array} conversationHistory - Önceki mesajlar
- * @param {object} context - { auth0UserId, dbUserId, gmailConnected, locale, stepUpContext, req }
+ * @param {object} context - { auth0UserId, dbUserId, userEmail, gmailConnected, locale, stepUpContext, req }
  * @returns {{ content: string, toolResults: Array, guardrailFlags: Array, stepUpRequest?: object }}
  */
 async function processMessage(userMessage, conversationHistory, context) {
-  const { auth0UserId, dbUserId, gmailConnected, locale, stepUpContext, req } = context;
+  const {
+    auth0UserId,
+    dbUserId,
+    userEmail,
+    gmailConnected,
+    locale,
+    stepUpContext,
+    req,
+  } = context;
 
   const systemPrompt = buildSystemPrompt(locale || 'en');
 
@@ -177,6 +191,7 @@ async function processMessage(userMessage, conversationHistory, context) {
       const toolResult = await executeTool(toolName, toolArgs, {
         auth0UserId,
         dbUserId,
+        userEmail,
         gmailConnected,
         stepUpContext,
         req,
@@ -215,6 +230,8 @@ async function processMessage(userMessage, conversationHistory, context) {
             required: true,
             action: toolName,
             pendingArgs: toolResult.pendingArgs || toolArgs,
+            challengeId: toolResult.stepUpChallengeId || null,
+            expiresAt: toolResult.stepUpChallengeExpiresAt || null,
             message: stepUpMsg,
           },
         };

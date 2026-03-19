@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth0 } from '@auth0/auth0-react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -19,37 +19,55 @@ import { authApi } from '../services/api';
 export default function SettingsPage() {
   const { user, getAccessTokenSilently } = useAuth0();
   const { t, i18n } = useTranslation();
-  const tokenParams = {
+  const audience = import.meta.env.VITE_AUTH0_AUDIENCE || 'https://knowhy-api.local';
+  const tokenParams = useMemo(() => ({
     authorizationParams: {
-      audience: import.meta.env.VITE_AUTH0_AUDIENCE || 'https://knowhy-api.local',
+      audience,
       scope: 'openid profile email offline_access',
     },
-  };
+  }), [audience]);
   const [gmailConnected, setGmailConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
 
-  useEffect(() => {
-    fetchProfile();
-  }, []);
-
-  const fetchProfile = async () => {
+  const fetchProfile = useCallback(async (showErrors = true) => {
     try {
       const token = await getAccessTokenSilently(tokenParams);
-      console.log('[DEBUG] Token obtained:', token ? `${token.substring(0, 50)}...` : 'NULL');
-      console.log('[DEBUG] Token length:', token?.length);
       const data = await authApi.getProfile(token);
       if (data.success) {
-        setGmailConnected(data.user.gmailConnected);
+        setGmailConnected(Boolean(data.user?.gmailConnected));
       }
     } catch (error) {
-      console.error('[DEBUG] fetchProfile error:', error);
-      console.error('[DEBUG] Error response:', error.data);
-      toast.error(error.data?.error || t('common.error'));
+      if (showErrors) {
+        toast.error(error.data?.error || t('common.error'));
+      }
     } finally {
       setLoading(false);
     }
-  };
+  }, [getAccessTokenSilently, t, tokenParams]);
+
+  useEffect(() => {
+    fetchProfile();
+  }, [fetchProfile]);
+
+  useEffect(() => {
+    const handleFocus = () => {
+      fetchProfile(false);
+    };
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        fetchProfile(false);
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [fetchProfile]);
 
   const handleConnectGmail = async () => {
     setConnecting(true);
@@ -67,13 +85,18 @@ export default function SettingsPage() {
   };
 
   const handleDisconnectGmail = async () => {
+    setConnecting(true);
     try {
       const token = await getAccessTokenSilently(tokenParams);
-      await authApi.disconnectGmail(token);
-      setGmailConnected(false);
+      const data = await authApi.disconnectGmail(token);
+      setGmailConnected(Boolean(data.gmailConnected));
       toast.success(t('gmail.notConnected'));
+      await fetchProfile(false);
     } catch (error) {
-      toast.error(t('common.error'));
+      toast.error(error.data?.error || t('common.error'));
+      await fetchProfile(false);
+    } finally {
+      setConnecting(false);
     }
   };
 

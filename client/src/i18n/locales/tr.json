@@ -21,6 +21,8 @@
     "placeholder": "Mesajınızı yazın...",
     "send": "Gönder",
     "newChat": "Yeni Sohbet",
+    "noHistory": "Henüz sohbet geçmişi yok.",
+    "historyLoadError": "Geçmiş sohbetler yüklenemedi.",
     "thinking": "Düşünüyor...",
     "welcomeTitle": "Merhaba, {{name}}!",
     "welcomeMessage": "Ben yapay zeka e-posta asistanınızım. Gmail gelen kutunuzu okuma, özetleme ve yönetme konusunda size yardımcı olabilirim. Ne yapmak istersiniz?",
