@@ -166,6 +166,26 @@ async function getGoogleTokenScopeString(accessToken) {
   return String(response.data?.scope || '');
 }
 
+async function isGoogleTokenUsable(accessToken) {
+  if (!accessToken) return false;
+  try {
+    const scopeString = await getGoogleTokenScopeString(accessToken);
+    return hasRequiredScopes(scopeString);
+  } catch (scopeError) {
+    const status = scopeError?.response?.status;
+    if (status === 400 || status === 401) {
+      return false;
+    }
+
+    // Geçici dış servis hatalarında güvenli tarafta kalıp bağlantıyı var kabul edelim.
+    logger.warn('Google token usability check transient error', {
+      status,
+      error: scopeError.response?.data || scopeError.message,
+    });
+    return true;
+  }
+}
+
 /**
  * Check if a user has a connected Google account in Token Vault.
  */
@@ -250,17 +270,48 @@ async function disconnectGoogleConnection(auth0UserId, hasRetried = false) {
     const identityUserId = String(googleIdentity.user_id || '').trim();
     if (!identityUserId) {
       logger.warn('Google identity user_id missing; cannot unlink identity', { userId: auth0UserId });
-      return { disconnected: false, reason: 'google_identity_user_id_missing' };
+      const tokenUsable = await isGoogleTokenUsable(googleIdentity.access_token);
+      return {
+        disconnected: !tokenUsable,
+        reason: tokenUsable
+          ? 'google_identity_user_id_missing'
+          : 'token_revoked_without_identity_user_id',
+      };
     }
 
-    await axios.delete(
-      `https://${AUTH0_DOMAIN}/api/v2/users/${encodeURIComponent(auth0UserId)}/identities/google-oauth2/${encodeURIComponent(identityUserId)}`,
-      {
-        headers: {
-          Authorization: `Bearer ${m2mToken}`,
-        },
+    try {
+      await axios.delete(
+        `https://${AUTH0_DOMAIN}/api/v2/users/${encodeURIComponent(auth0UserId)}/identities/google-oauth2/${encodeURIComponent(identityUserId)}`,
+        {
+          headers: {
+            Authorization: `Bearer ${m2mToken}`,
+          },
+        }
+      );
+    } catch (unlinkError) {
+      const unlinkStatus = unlinkError?.response?.status;
+      const unlinkCode = String(unlinkError?.response?.data?.errorCode || '');
+      const isMainIdentityConstraint = unlinkStatus === 400 && unlinkCode === 'delete_main_user_identity';
+
+      if (isMainIdentityConstraint) {
+        const tokenUsable = await isGoogleTokenUsable(googleIdentity.access_token);
+        if (!tokenUsable) {
+          logger.info('Main identity cannot be unlinked; token already unusable, treating as disconnected', {
+            userId: auth0UserId,
+          });
+          return { disconnected: true, reason: 'main_identity_token_revoked' };
+        }
+
+        logger.warn('Main identity cannot be unlinked and token is still usable', {
+          userId: auth0UserId,
+          status: unlinkStatus,
+          errorCode: unlinkCode,
+        });
+        return { disconnected: false, reason: 'main_identity_cannot_be_unlinked', status: unlinkStatus };
       }
-    );
+
+      throw unlinkError;
+    }
 
     const refreshedIdentities = await getUserIdentities(auth0UserId, m2mToken);
     const stillConnected = !!findGoogleIdentity(refreshedIdentities);
