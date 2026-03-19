@@ -24,7 +24,31 @@ const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 const { initCronJobs } = require('./services/cronJobs');
 
 const app = express();
-const PORT = process.env.SERVER_PORT || 3001;
+const PORT = Number(process.env.PORT || process.env.SERVER_PORT || 3001);
+
+function parseAllowedOrigins() {
+  const origins = new Set();
+
+  const addOrigins = (rawValue) => {
+    String(rawValue || '')
+      .split(/[,\s]+/)
+      .map((origin) => origin.trim())
+      .filter(Boolean)
+      .forEach((origin) => origins.add(origin));
+  };
+
+  addOrigins(process.env.CLIENT_URLS);
+  addOrigins(process.env.CLIENT_URL);
+
+  if (process.env.NODE_ENV !== 'production') {
+    origins.add('http://localhost:5173');
+    origins.add('http://127.0.0.1:5173');
+  }
+
+  return Array.from(origins);
+}
+
+const allowedOrigins = parseAllowedOrigins();
 
 // i18n setup
 i18next
@@ -52,7 +76,7 @@ app.use(helmet({
       scriptSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", "data:", "https:"],
-      connectSrc: ["'self'", process.env.AUTH0_DOMAIN ? `https://${process.env.AUTH0_DOMAIN}` : ''],
+      connectSrc: ["'self'", process.env.AUTH0_DOMAIN ? `https://${process.env.AUTH0_DOMAIN}` : ''].filter(Boolean),
     },
   },
   crossOriginEmbedderPolicy: false,
@@ -80,7 +104,10 @@ app.use('/api/chat', chatLimiter);
 
 // CORS
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    return callback(null, allowedOrigins.includes(origin));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept-Language'],
@@ -136,6 +163,7 @@ async function startServer() {
       logger.info(`🚀 Knowhy Backend running on port ${PORT}`);
       logger.info(`   Environment: ${process.env.NODE_ENV || 'development'}`);
       logger.info(`   Auth0 Domain: ${process.env.AUTH0_DOMAIN || 'not configured'}`);
+      logger.info(`   Allowed CORS origins: ${allowedOrigins.length > 0 ? allowedOrigins.join(', ') : '(none)'}`);
     });
   } catch (error) {
     logger.error('Failed to start server:', error);

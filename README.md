@@ -42,6 +42,16 @@ docker-compose up --build
 npm run dev
 ```
 
+## Render Deployment
+
+Render uzerine yayinlamak icin hazir blueprint dosyasi:
+
+- `render.yaml` (backend + static frontend + postgres)
+
+Adim adim kurulum:
+
+- `docs/deploy/render.md`
+
 ## Proje Yapısı
 
 ```
