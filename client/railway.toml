@@ -6,8 +6,8 @@ builder = "nixpacks"
 buildCommand = "npm ci && npm run build"
 
 [deploy]
-# Static site - Railway serve komutu
-startCommand = "npx serve -s dist -l $PORT"
+# Static site - bagimlilik gerektirmeyen minimal Node server
+startCommand = "node static-server.cjs"
 healthcheckPath = "/"
 healthcheckTimeout = 300
 restartPolicyType = "on_failure"

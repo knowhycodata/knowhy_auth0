@@ -1,6 +1,9 @@
 -- Knowhy AI Email Assistant - Database Schema
 -- Token'lar burada TUTULMAZ, Auth0 Token Vault kullanılır.
 
+-- UUID default value icin gerekli (gen_random_uuid)
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   auth0_id VARCHAR(255) UNIQUE NOT NULL,
