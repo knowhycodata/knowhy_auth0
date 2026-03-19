@@ -34,7 +34,9 @@ Kurallar:
 - Gmail bağlı değilse, kullanıcıdan Ayarlar'dan Gmail'i bağlamasını iste.
 - Kullanıcı "en son gelen mail" sorarsa mutlaka read_emails aracıyla güncel veriyi çek. Otomatik teslimat/bounce bildirimi çıktıysa bunu açıkça belirt.
 - Kullanıcı "mail nedir", "kimden geldi", "içeriği ne" gibi net soru sorarsa kısa formatta sadece şu alanları ver: Gönderen, Konu, Kısa Özet.
-- Kullanıcı "maili sil", "son maili sil" gibi ID vermeden silme isterse delete_email yerine delete_latest_email aracını kullan.`,
+- Kullanıcı "maili sil", "son maili sil" gibi ID vermeden silme isterse delete_email yerine delete_latest_email aracını kullan.
+- Kullanıcı gönderme veya silme niyetini açıkça belirttiyse yazılı teyit isteme. "Evet, sil", "onaylıyorum" gibi yeni bir sohbet mesajı talep etme.
+- Hassas işlemlerde onay metinle değil, sistemin MFA arayüzü ile alınır. Bu nedenle uygun high-stakes aracı doğrudan çağır ve MFA adımını backend/UI akışına bırak.`,
 
     en: `You are Knowhy, an intelligent AI email assistant. You help users read, summarize, and manage their Gmail inbox.
 
@@ -48,10 +50,33 @@ Rules:
 - If Gmail is not connected, ask the user to connect it from Settings.
 - If the user asks for the latest email, always fetch fresh data via read_emails. If it is an automated delivery/bounce notification, state that clearly.
 - For direct questions like "what is the email" or "who sent it", answer briefly using only: Sender, Subject, Short Summary.
-- If the user asks to delete an email without providing an explicit ID (e.g., "delete the latest email"), prefer delete_latest_email instead of delete_email.`,
+- If the user asks to delete an email without providing an explicit ID (e.g., "delete the latest email"), prefer delete_latest_email instead of delete_email.
+- If the user has already expressed clear intent to send or delete, do not ask for extra typed confirmation. Do not ask the user to reply with "yes", "confirm", or similar text.
+- High-stakes approval must happen through the system MFA UI, not through chat text. Call the appropriate high-stakes tool directly and let the backend/UI handle MFA.`,
   };
 
   return prompts[locale] || prompts.en;
+}
+
+function buildStepUpRequiredMessage(toolName, locale) {
+  const trMap = {
+    send_email: 'E-posta göndermek',
+    delete_email: 'E-postayı silmek',
+    delete_latest_email: 'Son gelen e-postayı silmek',
+  };
+  const enMap = {
+    send_email: 'Sending the email',
+    delete_email: 'Deleting the email',
+    delete_latest_email: 'Deleting the latest email',
+  };
+
+  if (locale === 'tr') {
+    const actionText = trMap[toolName] || 'Bu işlemi tamamlamak';
+    return `${actionText} için ek güvenlik onayı gerekiyor. Devam etmek için aşağıdaki "Onaylıyorum" butonuna basın; Auth0 MFA doğrulaması açılacak ve işlem otomatik sürdürülecek.`;
+  }
+
+  const actionText = enMap[toolName] || 'Completing this action';
+  return `${actionText} requires additional security approval. Click "I Approve" below to open Auth0 MFA, then the action will continue automatically.`;
 }
 
 /**
@@ -233,9 +258,7 @@ async function processMessage(userMessage, conversationHistory, context) {
       // Step-up auth gerekiyorsa döngüyü kır
       if (toolResult.requiresStepUp) {
         // LLM'e step-up durumunu bildir, kullanıcıya ilet
-        const stepUpMsg = locale === 'tr'
-          ? `Bu işlem (${toolName}) ek güvenlik doğrulaması (MFA) gerektirmektedir. Lütfen cihazınızdaki onay isteğini kabul edin.`
-          : `This action (${toolName}) requires additional security verification (MFA). Please approve the request on your device.`;
+        const stepUpMsg = buildStepUpRequiredMessage(toolName, locale);
 
         return {
           content: stepUpMsg,

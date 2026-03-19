@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useAuth0 } from '@auth0/auth0-react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { Send, Loader2, Mail, BookOpen, PenLine, Bot, User, ShieldCheck, X } from 'lucide-react';
+import { Send, Loader2, Mail, BookOpen, PenLine, Bot, User } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
@@ -92,7 +92,6 @@ export default function ChatPage() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [conversationId, setConversationId] = useState(null);
-  const [stepUpModalRequest, setStepUpModalRequest] = useState(null);
   const [stepUpInProgressChallengeId, setStepUpInProgressChallengeId] = useState(null);
   const [forceFreshToken, setForceFreshToken] = useState(false);
   const [completedStepUpChallengeId, setCompletedStepUpChallengeId] = useState(null);
@@ -156,7 +155,6 @@ export default function ChatPage() {
         if (isNewConversationRoute) {
           setConversationId(null);
           setMessages([]);
-          setStepUpModalRequest(null);
           syncPendingRetryContext(null);
           setReadyForAutoRetry(false);
           completedStepUpChallengeRef.current = null;
@@ -179,7 +177,10 @@ export default function ChatPage() {
                 ...(stepUpRequest && { stepUpRequest }),
               };
             })
-            .filter((m) => typeof m.content === 'string' && m.content.length > 0);
+            .filter((m) => (
+              (typeof m.content === 'string' && m.content.length > 0)
+              || !!m.stepUpRequest
+            ));
 
           setConversationId(routeConversationId);
           setMessages(restoredMessages);
@@ -210,7 +211,10 @@ export default function ChatPage() {
               ...(stepUpRequest && { stepUpRequest }),
             };
           })
-          .filter((m) => typeof m.content === 'string' && m.content.length > 0);
+          .filter((m) => (
+            (typeof m.content === 'string' && m.content.length > 0)
+            || !!m.stepUpRequest
+          ));
 
         setConversationId(activeConversation.id);
         setMessages(restoredMessages);
@@ -280,18 +284,6 @@ export default function ChatPage() {
     retry();
   }, [readyForAutoRetry, isLoading]);
 
-  useEffect(() => {
-    if (!stepUpModalRequest) return undefined;
-    const onKeyDown = (event) => {
-      if (event.key !== 'Escape') return;
-      if (stepUpInProgressChallengeId) return;
-      setStepUpModalRequest(null);
-    };
-
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [stepUpModalRequest, stepUpInProgressChallengeId]);
-
   const triggerStepUpPopup = async (stepUpRequest) => {
     const normalizedStepUpRequest = normalizeStepUpRequest(stepUpRequest);
     if (!normalizedStepUpRequest) {
@@ -333,7 +325,6 @@ export default function ChatPage() {
       completedStepUpChallengeRef.current = challengeId;
       setCompletedStepUpChallengeId(completedStepUpChallengeRef.current);
       persistStepUpResume(challengeId, pendingRetryContextRef.current);
-      setStepUpModalRequest(null);
       if (pendingRetryContextRef.current) {
         setReadyForAutoRetry(true);
       }
@@ -383,10 +374,13 @@ export default function ChatPage() {
       });
 
       if (data.success) {
-        const normalizedStepUpRequest = normalizeStepUpRequest(data.stepUpRequest);
+        const normalizedStepUpRequest = normalizeStepUpRequest(
+          data.stepUpRequest || data.message?.stepUpRequest
+        );
+        const assistantContent = data.message?.content ?? normalizedStepUpRequest?.message ?? '';
         const assistantMessage = {
           role: data.message?.role || 'assistant',
-          content: String(data.message?.content || ''),
+          content: String(assistantContent),
           ...(normalizedStepUpRequest && { stepUpRequest: normalizedStepUpRequest }),
         };
 
@@ -414,15 +408,15 @@ export default function ChatPage() {
 
           if (isStepUpRetry) {
             const retryMsg = i18n.language === 'tr'
-              ? 'MFA doğrulaması süre aşımına uğradı veya yeniden gerekli. Asistan mesajındaki MFA butonunu kullanarak tekrar doğrulayın.'
-              : 'MFA verification expired or is required again. Use the MFA button below the assistant message.';
+              ? 'MFA doğrulaması süre aşımına uğradı veya yeniden gerekli. Asistan mesajındaki "Onaylıyorum" butonunu kullanarak tekrar doğrulayın.'
+              : 'MFA verification expired or is required again. Use the "I Approve" button below the assistant message.';
             toast.error(retryMsg);
             return;
           }
 
           const promptMsg = i18n.language === 'tr'
-            ? 'Hassas işlem için asistan mesajı altında görünen "MFA Doğrulamasını Başlat" butonunu kullanın.'
-            : 'Use the "Start MFA Verification" button under the assistant message to continue.';
+            ? 'Hassas işlem için asistan mesajı altında görünen "Onaylıyorum" butonunu kullanın.'
+            : 'Use the "I Approve" button under the assistant message to continue.';
           toast(promptMsg);
           return;
         }
@@ -482,7 +476,7 @@ export default function ChatPage() {
                 language={i18n.language}
                 completedStepUpChallengeId={completedStepUpChallengeId}
                 stepUpInProgressChallengeId={stepUpInProgressChallengeId}
-                onOpenStepUpModal={setStepUpModalRequest}
+                onApproveStepUp={triggerStepUpPopup}
               />
             ))}
             {isLoading && (
@@ -527,20 +521,6 @@ export default function ChatPage() {
           </button>
         </form>
       </div>
-
-      {stepUpModalRequest && (
-        <StepUpApprovalModal
-          request={stepUpModalRequest}
-          language={i18n.language}
-          isSubmitting={stepUpInProgressChallengeId === stepUpModalRequest.challengeId}
-          onClose={() => {
-            if (!stepUpInProgressChallengeId) {
-              setStepUpModalRequest(null);
-            }
-          }}
-          onConfirm={() => triggerStepUpPopup(stepUpModalRequest)}
-        />
-      )}
     </div>
   );
 }
@@ -581,7 +561,7 @@ function MessageBubble({
   language,
   completedStepUpChallengeId,
   stepUpInProgressChallengeId,
-  onOpenStepUpModal,
+  onApproveStepUp,
 }) {
   const isUser = message.role === 'user';
   const stepUpRequest = !isUser ? normalizeStepUpRequest(message?.stepUpRequest) : null;
@@ -626,8 +606,8 @@ function MessageBubble({
           <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
             <p className="text-xs text-amber-100/90">
               {language === 'tr'
-                ? `Hassas işlem: ${actionLabel}. Devam etmek için MFA doğrulaması başlatın.`
-                : `Sensitive action: ${actionLabel}. Start MFA verification to continue.`}
+                ? `Hassas işlem: ${actionLabel}. Devam etmek için aşağıdan onay verin.`
+                : `Sensitive action: ${actionLabel}. Approve below to continue.`}
             </p>
             <button
               type="button"
@@ -635,106 +615,19 @@ function MessageBubble({
                 'btn-primary mt-2 text-xs',
                 (stepUpExpired || stepUpCompleted) && 'opacity-70'
               )}
-              onClick={() => onOpenStepUpModal(stepUpRequest)}
+              onClick={() => onApproveStepUp(stepUpRequest)}
               disabled={stepUpExpired || stepUpLoading || stepUpCompleted}
             >
               {stepUpLoading
-                ? (language === 'tr' ? 'Doğrulama açılıyor...' : 'Opening verification...')
+                ? (language === 'tr' ? 'MFA açılıyor...' : 'Opening MFA...')
                 : stepUpCompleted
-                  ? (language === 'tr' ? 'Doğrulandı' : 'Verified')
+                  ? (language === 'tr' ? 'Onaylandı' : 'Approved')
                   : stepUpExpired
                     ? (language === 'tr' ? 'Süresi Doldu' : 'Expired')
-                    : (language === 'tr' ? 'MFA Doğrulamasını Başlat' : 'Start MFA Verification')}
+                    : (language === 'tr' ? 'Onaylıyorum' : 'I Approve')}
             </button>
           </div>
         )}
-      </div>
-    </div>
-  );
-}
-
-function StepUpApprovalModal({
-  request,
-  language,
-  isSubmitting,
-  onClose,
-  onConfirm,
-}) {
-  const actionLabel = formatStepUpActionLabel(request?.action, language);
-  const expiresAtMs = Number(request?.expiresAt || 0) * 1000;
-  const expiresText = Number.isFinite(expiresAtMs) && expiresAtMs > 0
-    ? new Date(expiresAtMs).toLocaleTimeString(language === 'tr' ? 'tr-TR' : 'en-US')
-    : null;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={language === 'tr' ? 'MFA doğrulama onayı' : 'MFA verification approval'}
-        className="w-full max-w-md rounded-2xl border border-dark-700 bg-dark-900 p-5 shadow-2xl"
-      >
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <div className="rounded-lg bg-primary-600/20 p-2">
-              <ShieldCheck size={18} className="text-primary-300" />
-            </div>
-            <div>
-              <h3 className="text-base font-semibold text-white">
-                {language === 'tr' ? 'MFA Onayı Gerekiyor' : 'MFA Approval Required'}
-              </h3>
-              <p className="text-xs text-dark-300">
-                {language === 'tr'
-                  ? `İşlem: ${actionLabel}`
-                  : `Action: ${actionLabel}`}
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isSubmitting}
-            className="rounded-md p-1 text-dark-300 hover:bg-dark-700 hover:text-white disabled:opacity-40"
-            aria-label={language === 'tr' ? 'Kapat' : 'Close'}
-          >
-            <X size={16} />
-          </button>
-        </div>
-
-        <p className="text-sm text-dark-200">
-          {language === 'tr'
-            ? 'Güvenli devam için Auth0 MFA popup penceresi açılacak. Doğrulamayı tamamladığınızda işlem otomatik devam eder.'
-            : 'Auth0 MFA popup will open for secure confirmation. After verification, the action continues automatically.'}
-        </p>
-
-        {expiresText && (
-          <p className="mt-2 text-xs text-amber-200/90">
-            {language === 'tr'
-              ? `Bu onay isteği yaklaşık ${expiresText} saatine kadar geçerlidir.`
-              : `This approval request is valid until around ${expiresText}.`}
-          </p>
-        )}
-
-        <div className="mt-5 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isSubmitting}
-            className="btn-secondary text-sm"
-          >
-            {language === 'tr' ? 'Vazgeç' : 'Cancel'}
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={isSubmitting}
-            className="btn-primary text-sm"
-          >
-            {isSubmitting
-              ? (language === 'tr' ? 'Açılıyor...' : 'Opening...')
-              : (language === 'tr' ? 'Auth0 MFA Popup Aç' : 'Open Auth0 MFA Popup')}
-          </button>
-        </div>
       </div>
     </div>
   );
