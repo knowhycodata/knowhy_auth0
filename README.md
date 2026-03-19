@@ -8,6 +8,18 @@
 
 ---
 
+## Links & Resources / Linkler ve Kaynaklar
+
+| Resource | Link |
+|----------|------|
+| **Live Demo** | https://auth0.knowhy.app/ |
+| **GitHub Repository** | https://github.com/knowhycodata/knowhy_auth0 |
+| **Blog (English)** | [How Knowhy Built Zero-Trust AI Agents with Auth0 Token Vault](https://knowhyco.substack.com/p/authorized-to-act-how-knowhy-built) |
+| **Blog (Türkçe)** | [Auth0 Token Vault ile Sıfır Güven AI Ajanları](https://knowhyco.substack.com/p/authorized-to-act-knowhy-auth0-token) |
+| **Video Demo** | Coming soon (~3 min, Token Vault + Step-up MFA flow) |
+
+---
+
 ## Özellikler / Features
 
 **[TR]**
@@ -154,20 +166,20 @@ INPUT: userMessage, accessToken, locale, optional(stepUpChallengeId)
 
 ```mermaid
 flowchart TD
-    U["Kullanıcı Mesajı"] --> A["requireAuth"]
-    A --> B["chat route sanitize ve history"]
-    B --> C["Token Vault bağlantı kontrolü"]
-    C --> D["Step-up context oluştur"]
+    U["User Message / Kullanıcı Mesajı"] --> A["requireAuth"]
+    A --> B["chat route sanitize and history / chat route sanitize ve history"]
+    B --> C["Token Vault connection check / Token Vault bağlantı kontrolü"]
+    C --> D["Create Step-up context / Step-up context oluştur"]
     D --> E["Worker Agent"]
-    E --> F{"Tool call var mı"}
-    F -- "Hayır" --> G["Assistant cevabı"]
-    F -- "Evet" --> H["Guardrail kontrolü"]
+    E --> F{"Tool call exists? / Tool call var mı"}
+    F -- "No / Hayır" --> G["Assistant response / Assistant cevabı"]
+    F -- "Yes / Evet" --> H["Guardrail check / Guardrail kontrolü"]
     H --> I["Tool Executor"]
-    I --> J{"Step-up gerekli mi"}
-    J -- "Evet" --> K["challengeId ve expiresAt dön"]
-    J -- "Hayır" --> L["Tool sonucu context'e ekle"]
+    I --> J{"Step-up required? / Step-up gerekli mi"}
+    J -- "Yes / Evet" --> K["Return challengeId & expiresAt / challengeId ve expiresAt dön"]
+    J -- "No / Hayır" --> L["Add tool result to context / Tool sonucu context'e ekle"]
     L --> E
-    G --> M["DB metadata kaydı ve frontend response"]
+    G --> M["DB metadata save & frontend response / DB metadata kaydı ve frontend response"]
     K --> M
 ```
 
@@ -191,11 +203,11 @@ INPUT: auth0UserId
 flowchart TD
     A["Tool Executor"] --> B["gmailService.getGmailHeaders"]
     B --> C["tokenVault.getFederatedToken"]
-    C --> D["Auth0 M2M token al ve cachele"]
-    D --> E["Auth0 Management API identities oku"]
-    E --> F["google-oauth2 access token al"]
-    F --> G["Backend içinde Gmail API çağrısı"]
-    G --> H["LLM ve frontend'e yalnızca işlem sonucu dön"]
+    C --> D["Get & cache Auth0 M2M token / Auth0 M2M token al ve cachele"]
+    D --> E["Read Auth0 Management API identities / Auth0 Management API identities oku"]
+    E --> F["Get google-oauth2 access token / google-oauth2 access token al"]
+    F --> G["Backend Gmail API call / Backend içinde Gmail API çağrısı"]
+    G --> H["Return only result to LLM/frontend / LLM ve frontend'e yalnızca işlem sonucu dön"]
 ```
 
 ### Flow 3: High-Stakes + Step-up MFA / Akış 3: Yüksek Risk + Step-up MFA
@@ -222,17 +234,17 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A["Worker high-stakes tool ister"] --> B["Guardrail kontrolü"]
-    B --> C{"Approved"}
-    C -- "Hayır" --> D["İşlemi blokla ve audit log yaz"]
-    C -- "Evet" --> E["executeTool"]
-    E --> F["consumeStepUpChallenge ve policy kontrolü"]
-    F --> G{"Step-up doğrulandı mı"}
-    G -- "Evet" --> H["High-stakes tool'u çalıştır"]
-    G -- "Hayır" --> I["createStepUpChallenge üret"]
-    I --> J["requiresStepUp ile challenge dön"]
-    J --> K["Frontend MFA modal ve popup"]
-    K --> L["stepUpChallengeId ile otomatik retry"]
+    A["Worker wants high-stakes tool / Worker high-stakes tool ister"] --> B["Guardrail check / Guardrail kontrolü"]
+    B --> C{"Approved? / Approved"}
+    C -- "No / Hayır" --> D["Block operation & audit log / İşlemi blokla ve audit log yaz"]
+    C -- "Yes / Evet" --> E["executeTool"]
+    E --> F["consumeStepUpChallenge & policy check / consumeStepUpChallenge ve policy kontrolü"]
+    F --> G{"Step-up verified? / Step-up doğrulandı mı"}
+    G -- "Yes / Evet" --> H["Run high-stakes tool / High-stakes tool'u çalıştır"]
+    G -- "No / Hayır" --> I["createStepUpChallenge / createStepUpChallenge üret"]
+    I --> J["Return requiresStepUp / requiresStepUp ile challenge dön"]
+    J --> K["Frontend MFA modal & popup / Frontend MFA modal ve popup"]
+    K --> L["Auto-retry with stepUpChallengeId / stepUpChallengeId ile otomatik retry"]
     L --> E
 ```
 
@@ -250,12 +262,12 @@ flowchart TD
 ```mermaid
 flowchart TD
     A["High-stakes tool call"] --> B["Guardrail inspect"]
-    B --> C{"Guardrail yanıtı"}
-    C -- "approved=true" --> D["İşleme devam"]
-    C -- "approved=false" --> E["İşlemi reddet ve audit log yaz"]
-    C -- "servis hatası" --> F{"Aksiyon seviyesi"}
-    F -- "high-risk" --> G["Fail-closed: reddet"]
-    F -- "low-risk" --> H["Fail-open: izin ver"]
+    B --> C{"Guardrail response / Guardrail yanıtı"}
+    C -- "approved=true" --> D["Continue operation / İşleme devam"]
+    C -- "approved=false" --> E["Reject operation & audit log / İşlemi reddet ve audit log yaz"]
+    C -- "service error / servis hatası" --> F{"Action level / Aksiyon seviyesi"}
+    F -- "high-risk" --> G["Fail-closed: reject / Fail-closed: reddet"]
+    F -- "low-risk" --> H["Fail-open: allow / Fail-open: izin ver"]
 ```
 
 ### Flow 5: Asynchronous Nightly Summarization / Akış 5: Asenkron Gece Özetleme
@@ -270,11 +282,11 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A["node-cron 03:00 tetiklenir"] --> B["gmail_connected TRUE kullanıcıları çek"]
-    B --> C["Her kullanıcı için INBOX newer_than:1d oku"]
-    C --> D["LLM ile özet üret"]
-    D --> E["email_summaries tablosuna upsert"]
-    E --> F["Job log ve tamamla"]
+    A["node-cron triggers at 03:00 / node-cron 03:00 tetiklenir"] --> B["Fetch gmail_connected=TRUE users / gmail_connected TRUE kullanıcıları çek"]
+    B --> C["Read INBOX newer_than:1d for each user / Her kullanıcı için INBOX newer_than:1d oku"]
+    C --> D["Generate summary with LLM / LLM ile özet üret"]
+    D --> E["Upsert to email_summaries table / email_summaries tablosuna upsert"]
+    E --> F["Job log & complete / Job log ve tamamla"]
 ```
 
 ### Judging Criteria Mapping / Jüri Kriteri Eşlemesi
@@ -308,15 +320,6 @@ flowchart TD
 - Rate limiting and input sanitization active
 - Audit logging records all operations
 
-## Links & Resources / Linkler ve Kaynaklar
-
-| Resource | Link |
-|----------|------|
-| **Live Demo** | https://auth0.knowhy.app/ |
-| **GitHub Repository** | https://github.com/knowhycodata/knowhy_auth0 |
-| **Blog (English)** | [How Knowhy Built Zero-Trust AI Agents with Auth0 Token Vault](https://knowhyco.substack.com/p/authorized-to-act-how-knowhy-built) |
-| **Blog (Türkçe)** | [Auth0 Token Vault ile Sıfır Güven AI Ajanları](https://knowhyco.substack.com/p/authorized-to-act-knowhy-auth0-token) |
-| **Video Demo** | Coming soon (~3 min, Token Vault + Step-up MFA flow) |
 
 ## License / Lisans
 
