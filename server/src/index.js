@@ -28,6 +28,9 @@ const PORT = Number(process.env.PORT || process.env.SERVER_PORT || 3001);
 const DB_INIT_MAX_RETRIES = Number(process.env.DB_INIT_MAX_RETRIES || 30);
 const DB_INIT_RETRY_DELAY_MS = Number(process.env.DB_INIT_RETRY_DELAY_MS || 3000);
 
+// Railway/Reverse proxy arkasinda dogru client IP tespiti icin gerekli.
+app.set('trust proxy', 1);
+
 function parseAllowedOrigins() {
   const origins = new Set();
 

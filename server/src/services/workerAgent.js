@@ -93,12 +93,27 @@ async function processMessage(userMessage, conversationHistory, context) {
     round++;
 
     // Worker Agent'a çağrı yap
-    const response = await chatCompletion(
-      WORKER_MODEL,
-      messages,
-      gmailConnected ? TOOLS : [],
-      { temperature: 0.4, max_tokens: 4096 }
-    );
+    let response;
+    try {
+      response = await chatCompletion(
+        WORKER_MODEL,
+        messages,
+        gmailConnected ? TOOLS : [],
+        { temperature: 0.4, max_tokens: 4096 }
+      );
+    } catch (error) {
+      logger.error('Worker model call failed', {
+        userId: auth0UserId,
+        model: WORKER_MODEL,
+        error: error.message,
+      });
+
+      const fallbackMsg = locale === 'tr'
+        ? 'Yapay zeka servisi su anda yogun veya gecici olarak ulasilamiyor. Lutfen 15-30 saniye sonra tekrar deneyin.'
+        : 'The AI service is currently busy or temporarily unavailable. Please retry in 15-30 seconds.';
+
+      return { content: fallbackMsg, toolResults, guardrailFlags };
+    }
 
     // Tool call yoksa, text yanıtı döndür
     if (!response.toolCalls || response.toolCalls.length === 0) {
