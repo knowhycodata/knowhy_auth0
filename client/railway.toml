@@ -1,0 +1,14 @@
+# Railway Frontend Configuration (Static Site)
+# https://docs.railway.app/reference/config-as-code
+
+[build]
+builder = "nixpacks"
+buildCommand = "npm ci && npm run build"
+
+[deploy]
+# Static site - Railway serve komutu
+startCommand = "npx serve -s dist -l $PORT"
+healthcheckPath = "/"
+healthcheckTimeout = 300
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3

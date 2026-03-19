@@ -20,6 +20,10 @@ services:
         sync: false
       - key: ENABLE_FILE_LOGS
         value: "false"
+      - key: DB_INIT_MAX_RETRIES
+        value: "40"
+      - key: DB_INIT_RETRY_DELAY_MS
+        value: "3000"
       - key: AUTH0_DOMAIN
         sync: false
       - key: AUTH0_CLIENT_ID

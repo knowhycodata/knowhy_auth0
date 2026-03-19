@@ -25,6 +25,8 @@ const { initCronJobs } = require('./services/cronJobs');
 
 const app = express();
 const PORT = Number(process.env.PORT || process.env.SERVER_PORT || 3001);
+const DB_INIT_MAX_RETRIES = Number(process.env.DB_INIT_MAX_RETRIES || 30);
+const DB_INIT_RETRY_DELAY_MS = Number(process.env.DB_INIT_RETRY_DELAY_MS || 3000);
 
 function parseAllowedOrigins() {
   const origins = new Set();
@@ -49,6 +51,28 @@ function parseAllowedOrigins() {
 }
 
 const allowedOrigins = parseAllowedOrigins();
+
+async function waitForDatabaseReady() {
+  for (let attempt = 1; attempt <= DB_INIT_MAX_RETRIES; attempt += 1) {
+    try {
+      await initDatabase();
+      return;
+    } catch (error) {
+      const lastAttempt = attempt === DB_INIT_MAX_RETRIES;
+      logger.warn('Database init attempt failed', {
+        attempt,
+        maxRetries: DB_INIT_MAX_RETRIES,
+        error: error.message,
+      });
+
+      if (lastAttempt) {
+        throw error;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, DB_INIT_RETRY_DELAY_MS));
+    }
+  }
+}
 
 // i18n setup
 i18next
@@ -153,7 +177,7 @@ app.use(errorHandler);
 // Start server
 async function startServer() {
   try {
-    await initDatabase();
+    await waitForDatabaseReady();
     logger.info('Database initialized successfully');
 
     // Initialize cron jobs (nightly email summarization)
