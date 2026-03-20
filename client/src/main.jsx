@@ -10,12 +10,6 @@ const domain = import.meta.env.VITE_AUTH0_DOMAIN;
 const clientId = import.meta.env.VITE_AUTH0_CLIENT_ID;
 const audience = import.meta.env.VITE_AUTH0_AUDIENCE || 'https://knowhy-api.local';
 
-// Step-up redirect dönüşünde appState.returnTo'ya yönlendir
-function onRedirectCallback(appState) {
-  const returnTo = appState?.returnTo || '/';
-  window.history.replaceState({}, document.title, returnTo);
-}
-
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter>
@@ -29,7 +23,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         }}
         cacheLocation="localstorage"
         useRefreshTokens={true}
-        onRedirectCallback={onRedirectCallback}
       >
         <I18nProvider>
           <App />

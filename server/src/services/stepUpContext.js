@@ -118,6 +118,7 @@ function markStepUpChallengeVerified({
   userId,
   authTimestamp,
   mfaDetected = false,
+  skipTimestampCheck = false,
 }) {
   cleanupExpiredChallenges();
 
@@ -134,26 +135,35 @@ function markStepUpChallengeVerified({
     return { approved: false, reason: 'challenge_user_mismatch', entry: null };
   }
 
-  if (!(typeof authTimestamp === 'number' && authTimestamp > 0)) {
-    return { approved: false, reason: 'auth_timestamp_missing', entry: null };
-  }
+  // skipTimestampCheck: Inline confirm (mevcut ID token) kullanıldığında
+  // authTimestamp kontrolü atlanır. Token zaten JWT olarak doğrulanmış,
+  // challenge'ın kullanıcıya ait olduğu teyit edilmiş.
+  if (!skipTimestampCheck) {
+    if (!(typeof authTimestamp === 'number' && authTimestamp > 0)) {
+      return { approved: false, reason: 'auth_timestamp_missing', entry: null };
+    }
 
-  if (authTimestamp + STEP_UP_CLOCK_SKEW_SECONDS < entry.createdAt) {
-    return { approved: false, reason: 'auth_not_fresh_after_challenge', entry: null };
+    if (authTimestamp + STEP_UP_CLOCK_SKEW_SECONDS < entry.createdAt) {
+      return { approved: false, reason: 'auth_not_fresh_after_challenge', entry: null };
+    }
   }
 
   if (STEP_UP_REQUIRE_MFA_CLAIM && !mfaDetected) {
     return { approved: false, reason: 'mfa_claim_missing', entry: null };
   }
 
+  const effectiveAuthTimestamp = (typeof authTimestamp === 'number' && authTimestamp > 0)
+    ? authTimestamp
+    : nowSeconds();
+
   entry.verifiedAt = nowSeconds();
-  entry.verifiedAuthTimestamp = authTimestamp;
+  entry.verifiedAuthTimestamp = effectiveAuthTimestamp;
   entry.verifiedMfaDetected = !!mfaDetected;
 
   stepUpChallenges.set(challengeId, entry);
   return {
     approved: true,
-    reason: 'challenge_verified',
+    reason: skipTimestampCheck ? 'challenge_verified_inline' : 'challenge_verified',
     entry: cloneChallengeEntry(entry),
   };
 }

@@ -125,6 +125,8 @@ function buildVerifierConfig(options = {}) {
     ? Number(options.clockSkewSeconds)
     : STEP_UP_CLOCK_SKEW_SECONDS;
 
+  const skipFreshnessCheck = options.skipFreshnessCheck === true;
+
   return {
     auth0Domain,
     issuer: auth0Domain ? `https://${auth0Domain}/` : '',
@@ -132,6 +134,7 @@ function buildVerifierConfig(options = {}) {
     stepUpWindowSeconds,
     requireMfaClaim,
     clockSkewSeconds,
+    skipFreshnessCheck,
   };
 }
 
@@ -147,6 +150,29 @@ function evaluateStepUpClaims(payload, expectedUserSub, config = {}, nowEpochSec
 
   if (expectedUserSub && tokenSub !== expectedUserSub) {
     return { valid: false, reason: 'sub_mismatch', authAgeSeconds: null, mfaDetected, claims: payload || null };
+  }
+
+  // skipFreshnessCheck: Mevcut ID token ile inline confirm yapıldığında
+  // auth_time freshness kontrolü atlanır. Token imza doğrulaması + user sub
+  // eşleşmesi yeterli kabul edilir. Gmail scope'larının korunması için
+  // Auth0'ya redirect/popup yapılmaz.
+  if (config.skipFreshnessCheck) {
+    const authAgeSeconds = authTimestamp ? now - authTimestamp : null;
+    return {
+      valid: true,
+      reason: 'verified_inline',
+      authAgeSeconds,
+      mfaDetected,
+      claims: {
+        sub: tokenSub,
+        iss: payload.iss || null,
+        aud: payload.aud || null,
+        auth_time: Number(payload.auth_time) || null,
+        iat: Number(payload.iat) || null,
+        acr: payload.acr || null,
+        amr: Array.isArray(payload.amr) ? payload.amr : [],
+      },
+    };
   }
 
   if (!authTimestamp) {

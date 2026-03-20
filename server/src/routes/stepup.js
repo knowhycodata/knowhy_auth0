@@ -94,8 +94,12 @@ router.post('/confirm', requireAuth, async (req, res) => {
       return res.status(400).json({ success: false, error: 'stepUpToken is required' });
     }
 
+    // skipFreshnessCheck: Frontend mevcut ID token ile inline confirm yapıyor.
+    // Auth0'ya redirect/popup yapılmaz — bu Gmail scope'larını korur.
+    // Token imza doğrulaması + user sub eşleşmesi yeterli kabul edilir.
     const verification = await verifyStepUpToken(stepUpToken, {
       expectedUserSub: req.user.sub,
+      skipFreshnessCheck: true,
     });
 
     if (!verification.valid) {
@@ -111,11 +115,13 @@ router.post('/confirm', requireAuth, async (req, res) => {
       });
     }
 
+    const isInlineConfirm = verification.reason === 'verified_inline';
     const challengeResult = markStepUpChallengeVerified({
       challengeId,
       userId: req.user.sub,
       authTimestamp: resolveAuthTimestamp(verification.claims || {}),
       mfaDetected: verification.mfaDetected,
+      skipTimestampCheck: isInlineConfirm,
     });
 
     if (!challengeResult.approved) {
