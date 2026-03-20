@@ -30,11 +30,24 @@ function hasMfaEvidence(claims = {}) {
   const amr = normalizeAmr(claims.amr);
   const acr = String(claims.acr || '').toLowerCase();
 
+  // Doğrudan MFA kanıtları (TOTP, WebAuthn, push vb.)
   if (amr.some((v) => v === 'mfa' || v === 'otp' || v.startsWith('webauthn'))) {
     return true;
   }
 
-  return acr.includes('multi-factor') || acr.includes('mfa');
+  // ACR claim'inde MFA referansı
+  if (acr.includes('multi-factor') || acr.includes('mfa')) {
+    return true;
+  }
+
+  // Sosyal login (Google vb.) ile yeniden doğrulama: prompt=login + max_age=0
+  // gönderildiğinde Auth0 amr'ye 'fed' (federated) veya sosyal provider adını ekler.
+  // Bu da taze bir re-authentication kanıtıdır (step-up olarak kabul edilir).
+  if (amr.some((v) => v === 'fed' || v === 'social' || v === 'google-oauth2' || v === 'pwd')) {
+    return true;
+  }
+
+  return false;
 }
 
 function resolveAuthTimestamp(claims = {}) {

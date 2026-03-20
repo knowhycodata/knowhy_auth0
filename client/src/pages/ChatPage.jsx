@@ -390,8 +390,11 @@ export default function ChatPage() {
         authorizationParams: {
           audience,
           scope: 'openid profile email offline_access',
-          // Step-up popup'ta tam yeniden girişe zorlamıyoruz; aksi halde
-          // sosyal provider access token scope'ları daralabiliyor.
+          // Step-up: Kullanıcıyı yeniden giriş yapmaya zorla (max_age=0).
+          // prompt=login ile birlikte Auth0 mevcut oturumu yeniden doğrular
+          // ve MFA enrollment yerine login akışını başlatır.
+          prompt: 'login',
+          max_age: 0,
           acr_values: 'http://schemas.openid.net/pape/policies/2007/06/multi-factor',
         },
       });

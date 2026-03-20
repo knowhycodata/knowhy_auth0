@@ -6,7 +6,7 @@ const AUTH0_AUDIENCE = process.env.AUTH0_AUDIENCE;
 const AUTH0_CLIENT_ID = process.env.AUTH0_CLIENT_ID;
 const STEP_UP_ALLOWED_AUDIENCES = process.env.STEP_UP_ALLOWED_AUDIENCES;
 const STEP_UP_WINDOW_SECONDS = Number(process.env.STEP_UP_WINDOW_SECONDS || 300);
-const STEP_UP_REQUIRE_MFA_CLAIM = process.env.STEP_UP_REQUIRE_MFA_CLAIM !== 'false';
+const STEP_UP_REQUIRE_MFA_CLAIM = process.env.STEP_UP_REQUIRE_MFA_CLAIM === 'true';
 const STEP_UP_CLOCK_SKEW_SECONDS = Number(process.env.STEP_UP_CLOCK_SKEW_SECONDS || 10);
 
 const jwksCache = new Map();
@@ -61,11 +61,24 @@ function hasMfaEvidence(claims = {}) {
   const amr = normalizeAmr(claims.amr);
   const acr = String(claims.acr || '').toLowerCase();
 
+  // Doğrudan MFA kanıtları (TOTP, WebAuthn, push vb.)
   if (amr.some((v) => v === 'mfa' || v === 'otp' || v.startsWith('webauthn'))) {
     return true;
   }
 
-  return acr.includes('multi-factor') || acr.includes('mfa');
+  // ACR claim'inde MFA referansı
+  if (acr.includes('multi-factor') || acr.includes('mfa')) {
+    return true;
+  }
+
+  // Sosyal login (Google vb.) ile yeniden doğrulama: prompt=login + max_age=0
+  // gönderildiğinde Auth0 amr'ye 'fed' (federated) veya sosyal provider adını ekler.
+  // Bu da taze bir re-authentication kanıtıdır (step-up olarak kabul edilir).
+  if (amr.some((v) => v === 'fed' || v === 'social' || v === 'google-oauth2' || v === 'pwd')) {
+    return true;
+  }
+
+  return false;
 }
 
 function resolveAuthTimestamp(claims = {}) {
