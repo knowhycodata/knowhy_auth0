@@ -62,6 +62,17 @@ function looksLikeGmailMessageId(value) {
   return /^[a-f0-9]{12,32}$/i.test(String(value || '').trim());
 }
 
+function buildFallbackSubject(body) {
+  const normalizedBody = String(body || '').replace(/\s+/g, ' ').trim();
+  if (!normalizedBody) {
+    return 'Knowhy message';
+  }
+
+  const firstSentence = normalizedBody.split(/[.!?\n]/)[0].trim();
+  const candidate = firstSentence || normalizedBody;
+  return candidate.slice(0, 72) || 'Knowhy message';
+}
+
 /**
  * BLIND TOKEN INJECTION - Tool Executor
  * 
@@ -270,18 +281,27 @@ async function executeReadEmailDetail(auth0UserId, args, dbUserId, req) {
 
 async function executeSendEmail(auth0UserId, args, dbUserId, req) {
   // Bu fonksiyon sadece step-up auth geçtikten sonra çağrılır
+  const to = String(args.to || '').trim();
+  const body = String(args.body || '').trim();
+  const subjectInput = String(args.subject || '').trim();
+  const subject = subjectInput || buildFallbackSubject(body);
+
+  if (!to || !body) {
+    return { success: false, error: 'to and body are required' };
+  }
+
   const result = await gmailService.sendEmail(auth0UserId, {
-    to: args.to,
-    subject: args.subject,
-    body: args.body,
+    to,
+    subject,
+    body,
     cc: args.cc,
     inReplyTo: args.inReplyTo,
     threadId: args.threadId,
   });
 
   await auditLog(dbUserId, 'tool_send_email', 'agent', {
-    to: args.to,
-    subject: args.subject,
+    to,
+    subject,
     messageId: result.messageId,
   }, req, 'approved');
 

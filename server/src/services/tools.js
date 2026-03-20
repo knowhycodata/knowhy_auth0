@@ -65,7 +65,7 @@ const TOOLS = [
           },
           subject: {
             type: 'string',
-            description: 'Email subject line',
+            description: 'Email subject line (optional; if omitted, assistant will generate a concise subject)',
           },
           body: {
             type: 'string',
@@ -84,7 +84,7 @@ const TOOLS = [
             description: 'Thread ID for replies',
           },
         },
-        required: ['to', 'subject', 'body'],
+        required: ['to', 'body'],
       },
     },
   },

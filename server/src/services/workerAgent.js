@@ -9,6 +9,16 @@ const WORKER_MODEL = process.env.WORKER_MODEL || 'anthropic/claude-3.5-sonnet';
 const MAX_TOOL_ROUNDS = 5;
 const ENABLE_RESPONSE_GUARDRAIL = process.env.ENABLE_RESPONSE_GUARDRAIL === 'true';
 
+function hasExplicitSendIntent(message = '') {
+  const text = String(message || '');
+  if (!text) return false;
+
+  const hasEmail = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i.test(text);
+  if (!hasEmail) return false;
+
+  return /(mail at|email at|send (an )?email|e-?posta (at|g[öo]nder)|mail g[öo]nder|mesaj g[öo]nder)/i.test(text);
+}
+
 /**
  * WORKER AGENT - İşçi Ajan
  * 
@@ -36,7 +46,9 @@ Kurallar:
 - Kullanıcı "mail nedir", "kimden geldi", "içeriği ne" gibi net soru sorarsa kısa formatta sadece şu alanları ver: Gönderen, Konu, Kısa Özet.
 - Kullanıcı "maili sil", "son maili sil" gibi ID vermeden silme isterse delete_email yerine delete_latest_email aracını kullan.
 - Kullanıcı gönderme veya silme niyetini açıkça belirttiyse yazılı teyit isteme. "Evet, sil", "onaylıyorum" gibi yeni bir sohbet mesajı talep etme.
-- Hassas işlemlerde onay metinle değil, sistemin MFA arayüzü ile alınır. Bu nedenle uygun high-stakes aracı doğrudan çağır ve MFA adımını backend/UI akışına bırak.`,
+- Hassas işlemlerde onay metinle değil, sistemin MFA arayüzü ile alınır. Bu nedenle uygun high-stakes aracı doğrudan çağır ve MFA adımını backend/UI akışına bırak.
+- Kullanıcı gönderim niyetini açıkça belirttiyse serbest metinle MFA açıklaması yazmak yerine mutlaka send_email aracını çağır.
+- Kullanıcı subject belirtmediyse kısa ve nötr bir konu üretip send_email aracına ekle.`,
 
     en: `You are Knowhy, an intelligent AI email assistant. You help users read, summarize, and manage their Gmail inbox.
 
@@ -52,7 +64,9 @@ Rules:
 - For direct questions like "what is the email" or "who sent it", answer briefly using only: Sender, Subject, Short Summary.
 - If the user asks to delete an email without providing an explicit ID (e.g., "delete the latest email"), prefer delete_latest_email instead of delete_email.
 - If the user has already expressed clear intent to send or delete, do not ask for extra typed confirmation. Do not ask the user to reply with "yes", "confirm", or similar text.
-- High-stakes approval must happen through the system MFA UI, not through chat text. Call the appropriate high-stakes tool directly and let the backend/UI handle MFA.`,
+- High-stakes approval must happen through the system MFA UI, not through chat text. Call the appropriate high-stakes tool directly and let the backend/UI handle MFA.
+- If user clearly asks to send an email, never answer with only explanatory MFA text. You must call send_email.
+- If subject is not provided, generate a short neutral subject and pass it to send_email.`,
   };
 
   return prompts[locale] || prompts.en;
@@ -120,11 +134,21 @@ async function processMessage(userMessage, conversationHistory, context) {
     // Worker Agent'a çağrı yap
     let response;
     try {
+      const forceSendTool = round === 1 && hasExplicitSendIntent(userMessage);
       response = await chatCompletion(
         WORKER_MODEL,
         messages,
         gmailConnected ? TOOLS : [],
-        { temperature: 0.4, max_tokens: 4096 }
+        {
+          temperature: 0.4,
+          max_tokens: 4096,
+          ...(forceSendTool && {
+            tool_choice: {
+              type: 'function',
+              function: { name: 'send_email' },
+            },
+          }),
+        }
       );
     } catch (error) {
       logger.error('Worker model call failed', {
