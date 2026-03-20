@@ -83,8 +83,12 @@ export const emailApi = {
   readEmails: (token, options = {}) => request('/api/email/read', { method: 'POST', token, body: options }),
   readDetail: (token, messageId) => request('/api/email/detail', { method: 'POST', token, body: { messageId } }),
   sendEmail: (token, data) => request('/api/email/send', { method: 'POST', token, body: data }),
-  deleteEmail: (token, emailId, stepUpToken) =>
-    request('/api/email/delete', { method: 'POST', token, body: { emailId, stepUpToken } }),
+  deleteEmail: (token, emailId, stepUpToken, stepUpChallengeId) =>
+    request('/api/email/delete', {
+      method: 'POST',
+      token,
+      body: { emailId, stepUpToken, stepUpChallengeId },
+    }),
 };
 
 // ---- User ----

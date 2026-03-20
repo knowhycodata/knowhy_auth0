@@ -5,17 +5,54 @@ const { requireAuth } = require('../middleware/auth');
 const { auditLog } = require('../middleware/auditLog');
 const gmailService = require('../services/gmail');
 const { hasGoogleConnection } = require('../services/tokenVault');
-const { verifyStepUpToken } = require('../services/stepUpTokenVerifier');
+const { verifyStepUpToken, resolveAuthTimestamp } = require('../services/stepUpTokenVerifier');
+const { createStepUpChallenge, getStepUpChallenge, consumeStepUpChallenge } = require('../services/stepUpContext');
 
-function buildStepUpFailureResponse(req, action, stepUpReason) {
+function buildStepUpFailureResponse(req, action, stepUpReason, challenge = null) {
   return {
     success: false,
     requiresStepUp: true,
     action,
     stepUpReason,
+    stepUpChallengeId: challenge?.challengeId || null,
+    stepUpChallengeExpiresAt: challenge?.expiresAt || null,
     message: req.t
       ? req.t('email.stepUpInvalid')
       : 'Step-up verification is invalid or expired. Please approve MFA and try again.',
+  };
+}
+
+function getOrCreateActionChallenge({ userId, action, pendingArgs, stepUpChallengeId }) {
+  const normalizedChallengeId = typeof stepUpChallengeId === 'string'
+    ? stepUpChallengeId.trim()
+    : '';
+  const existingChallenge = normalizedChallengeId
+    ? getStepUpChallenge(normalizedChallengeId, userId)
+    : null;
+
+  if (existingChallenge && existingChallenge.action === action) {
+    return existingChallenge;
+  }
+
+  return createStepUpChallenge({
+    userId,
+    action,
+    pendingArgs,
+  });
+}
+
+function buildStepUpRequiredResponse(req, action, challenge) {
+  const defaultMessage = action === 'send_email'
+    ? 'Sending emails requires additional authentication (MFA). Please approve the request.'
+    : 'Deleting emails requires additional authentication (MFA). Please approve the request.';
+
+  return {
+    success: true,
+    requiresStepUp: true,
+    action,
+    stepUpChallengeId: challenge.challengeId,
+    stepUpChallengeExpiresAt: challenge.expiresAt,
+    message: req.t ? req.t('email.stepUpRequired') : defaultMessage,
   };
 }
 
@@ -112,7 +149,17 @@ router.post('/send', requireAuth, async (req, res) => {
       });
     }
 
-    const { to, subject, body, cc, bcc, inReplyTo, threadId, stepUpToken } = req.body;
+    const {
+      to,
+      subject,
+      body,
+      cc,
+      bcc,
+      inReplyTo,
+      threadId,
+      stepUpToken,
+      stepUpChallengeId,
+    } = req.body;
 
     if (!to || !subject || !body) {
       return res.status(400).json({
@@ -121,22 +168,28 @@ router.post('/send', requireAuth, async (req, res) => {
       });
     }
 
-    // HIGH-STAKES ACTION: Step-up Auth kontrolü
-    // stepUpToken yoksa, kullanıcıdan MFA onayı iste
-    if (!stepUpToken) {
-      await auditLog(req.dbUser.id, 'email_send_stepup_required', 'gmail', { to, subject }, req);
+    const challenge = getOrCreateActionChallenge({
+      userId: req.user.sub,
+      action: 'send_email',
+      pendingArgs: { to, subject, body, cc, bcc, inReplyTo, threadId },
+      stepUpChallengeId,
+    });
+    const normalizedStepUpToken = typeof stepUpToken === 'string'
+      ? stepUpToken.trim()
+      : '';
 
-      return res.json({
-        success: true,
-        requiresStepUp: true,
-        action: 'send_email',
-        message: req.t
-          ? req.t('email.stepUpRequired')
-          : 'Sending emails requires additional authentication (MFA). Please approve the request.',
-      });
+    // HIGH-STAKES ACTION: token + challenge birlikte zorunlu
+    if (!normalizedStepUpToken) {
+      await auditLog(req.dbUser.id, 'email_send_stepup_required', 'gmail', {
+        to,
+        subject,
+        challengeId: challenge.challengeId,
+      }, req);
+
+      return res.json(buildStepUpRequiredResponse(req, 'send_email', challenge));
     }
 
-    const stepUpVerification = await verifyStepUpToken(stepUpToken, {
+    const stepUpVerification = await verifyStepUpToken(normalizedStepUpToken, {
       expectedUserSub: req.user.sub,
     });
 
@@ -145,10 +198,32 @@ router.post('/send', requireAuth, async (req, res) => {
         to,
         subject,
         stepUpReason: stepUpVerification.reason,
+        challengeId: challenge.challengeId,
       }, req, 'rejected');
 
       return res.status(403).json(
-        buildStepUpFailureResponse(req, 'send_email', stepUpVerification.reason)
+        buildStepUpFailureResponse(req, 'send_email', stepUpVerification.reason, challenge)
+      );
+    }
+
+    const challengeVerification = consumeStepUpChallenge({
+      challengeId: challenge.challengeId,
+      userId: req.user.sub,
+      action: 'send_email',
+      authTimestamp: resolveAuthTimestamp(stepUpVerification.claims || {}),
+      mfaDetected: stepUpVerification.mfaDetected,
+    });
+
+    if (!challengeVerification.approved) {
+      await auditLog(req.dbUser.id, 'email_send_stepup_rejected', 'gmail', {
+        to,
+        subject,
+        stepUpReason: challengeVerification.reason,
+        challengeId: challenge.challengeId,
+      }, req, 'rejected');
+
+      return res.status(403).json(
+        buildStepUpFailureResponse(req, 'send_email', challengeVerification.reason, challenge)
       );
     }
 
@@ -158,6 +233,7 @@ router.post('/send', requireAuth, async (req, res) => {
       stepUpReason: stepUpVerification.reason,
       authAgeSeconds: stepUpVerification.authAgeSeconds,
       mfaDetected: stepUpVerification.mfaDetected,
+      challengeId: challenge.challengeId,
     }, req, 'approved');
 
     await auditLog(req.dbUser.id, 'email_sent', 'gmail', { to, subject }, req);
@@ -183,27 +259,33 @@ router.post('/delete', requireAuth, async (req, res) => {
       });
     }
 
-    const { emailId, stepUpToken } = req.body;
+    const { emailId, stepUpToken, stepUpChallengeId } = req.body;
 
     if (!emailId) {
       return res.status(400).json({ success: false, error: 'emailId is required' });
     }
 
-    // HIGH-STAKES ACTION: Step-up Auth kontrolü
-    if (!stepUpToken) {
-      await auditLog(req.dbUser.id, 'email_delete_stepup_required', 'gmail', { emailId }, req);
+    const challenge = getOrCreateActionChallenge({
+      userId: req.user.sub,
+      action: 'delete_email',
+      pendingArgs: { emailId },
+      stepUpChallengeId,
+    });
+    const normalizedStepUpToken = typeof stepUpToken === 'string'
+      ? stepUpToken.trim()
+      : '';
 
-      return res.json({
-        success: true,
-        requiresStepUp: true,
-        action: 'delete_email',
-        message: req.t
-          ? req.t('email.stepUpRequired')
-          : 'Deleting emails requires additional authentication (MFA). Please approve the request.',
-      });
+    // HIGH-STAKES ACTION: token + challenge birlikte zorunlu
+    if (!normalizedStepUpToken) {
+      await auditLog(req.dbUser.id, 'email_delete_stepup_required', 'gmail', {
+        emailId,
+        challengeId: challenge.challengeId,
+      }, req);
+
+      return res.json(buildStepUpRequiredResponse(req, 'delete_email', challenge));
     }
 
-    const stepUpVerification = await verifyStepUpToken(stepUpToken, {
+    const stepUpVerification = await verifyStepUpToken(normalizedStepUpToken, {
       expectedUserSub: req.user.sub,
     });
 
@@ -211,10 +293,31 @@ router.post('/delete', requireAuth, async (req, res) => {
       await auditLog(req.dbUser.id, 'email_delete_stepup_rejected', 'gmail', {
         emailId,
         stepUpReason: stepUpVerification.reason,
+        challengeId: challenge.challengeId,
       }, req, 'rejected');
 
       return res.status(403).json(
-        buildStepUpFailureResponse(req, 'delete_email', stepUpVerification.reason)
+        buildStepUpFailureResponse(req, 'delete_email', stepUpVerification.reason, challenge)
+      );
+    }
+
+    const challengeVerification = consumeStepUpChallenge({
+      challengeId: challenge.challengeId,
+      userId: req.user.sub,
+      action: 'delete_email',
+      authTimestamp: resolveAuthTimestamp(stepUpVerification.claims || {}),
+      mfaDetected: stepUpVerification.mfaDetected,
+    });
+
+    if (!challengeVerification.approved) {
+      await auditLog(req.dbUser.id, 'email_delete_stepup_rejected', 'gmail', {
+        emailId,
+        stepUpReason: challengeVerification.reason,
+        challengeId: challenge.challengeId,
+      }, req, 'rejected');
+
+      return res.status(403).json(
+        buildStepUpFailureResponse(req, 'delete_email', challengeVerification.reason, challenge)
       );
     }
 
@@ -223,6 +326,7 @@ router.post('/delete', requireAuth, async (req, res) => {
       stepUpReason: stepUpVerification.reason,
       authAgeSeconds: stepUpVerification.authAgeSeconds,
       mfaDetected: stepUpVerification.mfaDetected,
+      challengeId: challenge.challengeId,
     }, req, 'approved');
 
     await auditLog(req.dbUser.id, 'email_deleted', 'gmail', { emailId }, req);
