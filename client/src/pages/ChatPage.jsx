@@ -93,7 +93,6 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [conversationId, setConversationId] = useState(null);
   const [stepUpInProgressChallengeId, setStepUpInProgressChallengeId] = useState(null);
-  const [forceFreshToken, setForceFreshToken] = useState(false);
   const [completedStepUpChallengeId, setCompletedStepUpChallengeId] = useState(null);
   const [pendingRetryContext, setPendingRetryContext] = useState(null);
   const [readyForAutoRetry, setReadyForAutoRetry] = useState(false);
@@ -320,7 +319,7 @@ export default function ChatPage() {
         throw new Error('step-up token missing');
       }
 
-      const confirmToken = await getAccessTokenSilently({ ...tokenParams, cacheMode: 'off' });
+      const confirmToken = await getAccessTokenSilently(tokenParams);
       await stepUpApi.confirm(
         confirmToken,
         normalizedStepUpRequest.challengeId,
@@ -331,8 +330,6 @@ export default function ChatPage() {
         ? `MFA doğrulaması tamamlandı (${normalizedStepUpRequest.action}). İşlem otomatik olarak devam ettirilecek.`
         : `MFA verification completed (${normalizedStepUpRequest.action}). The action will continue automatically.`;
       toast.success(successMsg);
-      // Bir sonraki API çağrısında cache dışı taze access token al.
-      setForceFreshToken(true);
       const challengeId = normalizedStepUpRequest.challengeId;
       completedStepUpChallengeRef.current = challengeId;
       setCompletedStepUpChallengeId(completedStepUpChallengeRef.current);
@@ -371,11 +368,7 @@ export default function ChatPage() {
     setIsLoading(true);
 
     try {
-      const tokenOptions = forceFreshToken
-        ? { ...tokenParams, cacheMode: 'off' }
-        : tokenParams;
-      const token = await getAccessTokenSilently(tokenOptions);
-      if (forceFreshToken) setForceFreshToken(false);
+      const token = await getAccessTokenSilently(tokenParams);
       const challengeIdToSend = completedStepUpChallengeRef.current || completedStepUpChallengeId || null;
       const shouldResumePendingStepUp = !!challengeIdToSend && (
         isStepUpRetry
