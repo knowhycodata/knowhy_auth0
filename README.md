@@ -11,7 +11,7 @@
 ## Links & Resources / Linkler ve Kaynaklar
 
 | Resource | Link |
-|----------|------|
+|----------|------| 
 | **Live Demo** | https://auth0.knowhy.app/ |
 | **GitHub Repository** | https://github.com/knowhycodata/knowhy_auth0 |
 | **Blog (English)** | [How Knowhy Built Zero-Trust AI Agents with Auth0 Token Vault](https://knowhyco.substack.com/p/authorized-to-act-how-knowhy-built) |
@@ -23,7 +23,7 @@
 ## Özellikler / Features
 
 **[TR]**
-- **Auth0 Login & Token Vault** - Güvenli kimlik doğrulama, Google token'ları Auth0 Token Vault'ta saklanır
+- **Auth0 Login & Token Vault** - Güvenli kimlik doğrulama, Google token'ları Auth0 Token Vault'ta saklanır.
 - **Blind Token Injection** - LLM hiçbir zaman token görmez
 - **Agent-to-Agent (Guardrail)** - Worker + Guardrail çift ajan güvenlik mimarisi
 - **Step-up Authentication** - E-posta gönderme/silme için MFA onayı
