@@ -83,7 +83,7 @@ function formatStepUpActionLabel(action, language) {
 }
 
 export default function ChatPage() {
-  const { user, getAccessTokenSilently, getIdTokenClaims, loginWithPopup } = useAuth0();
+  const { user, getAccessTokenSilently, getIdTokenClaims, loginWithRedirect, isAuthenticated } = useAuth0();
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
@@ -365,6 +365,85 @@ export default function ChatPage() {
     retry();
   }, [readyForAutoRetry, isLoading]);
 
+  // ─── Redirect dönüşünde step-up confirm + auto-retry ───
+  const stepUpRedirectDoneRef = useRef(false);
+  useEffect(() => {
+    if (stepUpRedirectDoneRef.current) return;
+    if (!isAuthenticated || !user?.sub) return;
+    if (!stepUpResumeStorageKey) return;
+
+    const raw = sessionStorage.getItem(stepUpResumeStorageKey);
+    if (!raw) return;
+
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch { return; }
+
+    // Redirect dönüşü mü kontrol et
+    if (!parsed?.awaitingRedirectReturn) return;
+    stepUpRedirectDoneRef.current = true;
+
+    const ageMs = Date.now() - Number(parsed?.savedAt || 0);
+    if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs > STEP_UP_RESUME_TTL_MS) {
+      clearPersistedStepUpResume();
+      return;
+    }
+
+    const challengeId = parsed?.challengeId;
+    const retryCtx = parsed?.retryContext;
+    if (!challengeId || !retryCtx?.message || !retryCtx?.conversationId) {
+      clearPersistedStepUpResume();
+      return;
+    }
+
+    // Async confirm + retry (bootstrap'ın bitmesini bekle)
+    (async () => {
+      try {
+        // Auth0 SDK token cache'inin hazır olması için kısa bekle
+        await new Promise((r) => setTimeout(r, 800));
+
+        const idTokenClaims = await getIdTokenClaims();
+        const stepUpJwt = String(idTokenClaims?.__raw || '').trim();
+        if (!stepUpJwt) {
+          throw new Error('step-up token missing after redirect');
+        }
+
+        const confirmToken = await getAccessTokenSilently(tokenParams);
+        await stepUpApi.confirm(confirmToken, challengeId, stepUpJwt);
+
+        completedStepUpChallengeRef.current = challengeId;
+        setCompletedStepUpChallengeId(challengeId);
+
+        // Navigate to correct conversation first
+        if (retryCtx.conversationId) {
+          navigate(`/chat/${retryCtx.conversationId}`, { replace: true });
+          // Conversation bootstrap'ının tamamlanması için bekle
+          await new Promise((r) => setTimeout(r, 500));
+        }
+
+        const successMsg = i18n.language === 'tr'
+          ? 'MFA doğrulaması tamamlandı. İşlem devam ettiriliyor...'
+          : 'MFA verification completed. Resuming action...';
+        toast.success(successMsg);
+
+        // Retry the original action
+        syncPendingRetryContext(retryCtx);
+        await sendMessage(retryCtx.message, {
+          appendUserMessage: false,
+          isStepUpRetry: true,
+          conversationIdOverride: retryCtx.conversationId,
+        });
+      } catch (err) {
+        const errMsg = err?.message || 'step-up confirm failed';
+        toast.error(i18n.language === 'tr'
+          ? `MFA onayı tamamlanamadı: ${errMsg}`
+          : `MFA confirmation failed: ${errMsg}`);
+      } finally {
+        clearPersistedStepUpResume();
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, user?.sub, stepUpResumeStorageKey]);
+
   const triggerStepUpPopup = async (stepUpRequest) => {
     const normalizedStepUpRequest = normalizeStepUpRequest(stepUpRequest);
     if (!normalizedStepUpRequest) {
@@ -383,108 +462,31 @@ export default function ChatPage() {
       return;
     }
 
-    setStepUpInProgressChallengeId(normalizedStepUpRequest.challengeId);
-
-    try {
-      await loginWithPopup({
-        authorizationParams: {
-          audience,
-          scope: 'openid profile email offline_access',
-          // Step-up: Kullanıcıyı yeniden giriş yapmaya zorla (max_age=0).
-          // prompt=login ile birlikte Auth0 mevcut oturumu yeniden doğrular
-          // ve MFA enrollment yerine login akışını başlatır.
-          prompt: 'login',
-          max_age: 0,
-          acr_values: 'http://schemas.openid.net/pape/policies/2007/06/multi-factor',
-          // Google ile re-auth yapıldığında Token Vault'taki Gmail scope'larının
-          // korunması için connection_scope ekliyoruz. Aksi halde re-login sonrası
-          // Token Vault'taki Google identity sadece OIDC scope'ları ile güncellenir
-          // ve Gmail API erişimi kaybolur.
-          connection_scope: 'https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/gmail.modify',
-          access_type: 'offline',
-          include_granted_scopes: 'true',
-        },
-      });
-      const idTokenClaims = await getIdTokenClaims();
-      const verifiedStepUpToken = String(idTokenClaims?.__raw || '').trim();
-      if (!verifiedStepUpToken) {
-        throw new Error('step-up token missing');
-      }
-
-      await confirmStepUpChallenge(
-        normalizedStepUpRequest.challengeId,
-        verifiedStepUpToken
-      );
-      completeStepUpChallenge(normalizedStepUpRequest);
-
-      // loginWithPopup sonrası React render cycle güvenilir olmayabilir;
-      // useEffect(readyForAutoRetry) tetiklenmeyebilir.
-      // Bu yüzden doğrudan retry tetikliyoruz.
-      const retryCtx = pendingRetryContextRef.current;
-      if (retryCtx?.message && retryCtx?.conversationId) {
-        setTimeout(() => {
-          sendMessage(retryCtx.message, {
-            appendUserMessage: false,
-            isStepUpRetry: true,
-            conversationIdOverride: retryCtx.conversationId,
-          });
-        }, 300);
-      }
-    } catch (error) {
-      const popupErr = error?.error || error?.message || 'step-up failed';
-      const stepUpReason = String(error?.data?.reason || '').trim();
-      const shouldFallbackToCiba = STEP_UP_CIBA_FALLBACK_ENABLED && (
-        error?.status === 403
-        || popupErr === 'missing_refresh_token'
-        || stepUpReason === 'mfa_claim_missing'
-        || stepUpReason === 'stepup_token_invalid'
-        || stepUpReason === 'token_invalid'
-      );
-
-      if (shouldFallbackToCiba) {
-        const fallbackMsg = i18n.language === 'tr'
-          ? 'Popup MFA doğrulaması yeterli kanıt üretmedi. Cihaz onayı bekleniyor...'
-          : 'Popup MFA did not produce sufficient proof. Waiting for device approval...';
-        toast(fallbackMsg);
-
-        try {
-          await confirmStepUpChallengeViaCiba(normalizedStepUpRequest);
-          completeStepUpChallenge(normalizedStepUpRequest);
-
-          const cibaRetryCtx = pendingRetryContextRef.current;
-          if (cibaRetryCtx?.message && cibaRetryCtx?.conversationId) {
-            setTimeout(() => {
-              sendMessage(cibaRetryCtx.message, {
-                appendUserMessage: false,
-                isStepUpRetry: true,
-                conversationIdOverride: cibaRetryCtx.conversationId,
-              });
-            }, 300);
-          }
-          return;
-        } catch (fallbackError) {
-          const fallbackErr = fallbackError?.error || fallbackError?.message || 'step-up fallback failed';
-          const blockedMsg = i18n.language === 'tr'
-            ? `MFA doğrulaması tamamlanamadı: ${fallbackErr}`
-            : `MFA verification could not complete: ${fallbackErr}`;
-          toast.error(blockedMsg);
-          completedStepUpChallengeRef.current = null;
-          setCompletedStepUpChallengeId(null);
-          clearPersistedStepUpResume();
-          return;
-        }
-      }
-
-      const blockedMsg = i18n.language === 'tr'
-        ? `MFA popup tamamlanamadı: ${popupErr}`
-        : `MFA popup could not complete: ${popupErr}`;
-      toast.error(blockedMsg);
-      completedStepUpChallengeRef.current = null;
-      setCompletedStepUpChallengeId(null);
-      clearPersistedStepUpResume();
-    } finally {
-      setStepUpInProgressChallengeId(null);
+    // Step-up bilgisini sessionStorage'a kaydet — redirect dönüşünde kullanılacak
+    if (stepUpResumeStorageKey) {
+      sessionStorage.setItem(stepUpResumeStorageKey, JSON.stringify({
+        challengeId: normalizedStepUpRequest.challengeId,
+        action: normalizedStepUpRequest.action,
+        retryContext: pendingRetryContextRef.current || null,
+        awaitingRedirectReturn: true,
+        savedAt: Date.now(),
+      }));
     }
+
+    // loginWithRedirect: COOP sorunu olmaz, popup yerine tam sayfa yönlendirme
+    await loginWithRedirect({
+      authorizationParams: {
+        audience,
+        scope: 'openid profile email offline_access',
+        prompt: 'login',
+        max_age: 0,
+        acr_values: 'http://schemas.openid.net/pape/policies/2007/06/multi-factor',
+      },
+      appState: {
+        returnTo: window.location.pathname,
+        stepUpChallengeId: normalizedStepUpRequest.challengeId,
+      },
+    });
   };
 
   const sendMessage = async (content, options = {}) => {
