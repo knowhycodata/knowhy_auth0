@@ -111,12 +111,29 @@ app.use(helmet({
 
 app.use(hpp());
 
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    return callback(null, allowedOrigins.includes(origin));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept-Language'],
+};
+
+// CORS must run before rate limiters so 4xx responses still include CORS headers.
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+
 // Rate limiting
+const skipPreflight = (req) => req.method === 'OPTIONS';
+
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: skipPreflight,
   message: { error: 'Too many requests, please try again later.' },
 });
 app.use('/api/', limiter);
@@ -125,20 +142,10 @@ app.use('/api/', limiter);
 const chatLimiter = rateLimit({
   windowMs: 1 * 60 * 1000,
   max: 20,
+  skip: skipPreflight,
   message: { error: 'Too many chat requests, please slow down.' },
 });
 app.use('/api/chat', chatLimiter);
-
-// CORS
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    return callback(null, allowedOrigins.includes(origin));
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept-Language'],
-}));
 
 // Body parsing
 app.use(express.json({ limit: '10mb' }));
