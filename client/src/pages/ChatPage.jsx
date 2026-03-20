@@ -11,6 +11,7 @@ import { chatApi, stepUpApi, userApi } from '../services/api';
 const STEP_UP_RESUME_TTL_MS = 5 * 60 * 1000;
 const STEP_UP_ALLOWED_ACTIONS = new Set(['send_email', 'delete_email', 'delete_latest_email']);
 const STEP_UP_CHALLENGE_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const STEP_UP_CIBA_FALLBACK_ENABLED = import.meta.env.VITE_STEPUP_CIBA_FALLBACK === 'true';
 
 function sleep(ms) {
   return new Promise((resolve) => {
@@ -408,11 +409,13 @@ export default function ChatPage() {
     } catch (error) {
       const popupErr = error?.error || error?.message || 'step-up failed';
       const stepUpReason = String(error?.data?.reason || '').trim();
-      const shouldFallbackToCiba = error?.status === 403
+      const shouldFallbackToCiba = STEP_UP_CIBA_FALLBACK_ENABLED && (
+        error?.status === 403
         || popupErr === 'missing_refresh_token'
         || stepUpReason === 'mfa_claim_missing'
         || stepUpReason === 'stepup_token_invalid'
-        || stepUpReason === 'token_invalid';
+        || stepUpReason === 'token_invalid'
+      );
 
       if (shouldFallbackToCiba) {
         const fallbackMsg = i18n.language === 'tr'
