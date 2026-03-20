@@ -83,7 +83,7 @@ function formatStepUpActionLabel(action, language) {
 }
 
 export default function ChatPage() {
-  const { user, getAccessTokenSilently, getIdTokenClaims } = useAuth0();
+  const { user, getAccessTokenSilently, getIdTokenClaims, loginWithRedirect, isAuthenticated } = useAuth0();
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
@@ -101,6 +101,7 @@ export default function ChatPage() {
   const [conversationId, setConversationId] = useState(null);
   const [stepUpInProgressChallengeId, setStepUpInProgressChallengeId] = useState(null);
   const [completedStepUpChallengeId, setCompletedStepUpChallengeId] = useState(null);
+  const [consumedChallengeIds, setConsumedChallengeIds] = useState(new Set());
   const [pendingRetryContext, setPendingRetryContext] = useState(null);
   const [readyForAutoRetry, setReadyForAutoRetry] = useState(false);
   const messagesEndRef = useRef(null);
@@ -135,6 +136,7 @@ export default function ChatPage() {
     const challengeId = normalizedStepUpRequest.challengeId;
     completedStepUpChallengeRef.current = challengeId;
     setCompletedStepUpChallengeId(completedStepUpChallengeRef.current);
+    setConsumedChallengeIds((prev) => new Set(prev).add(challengeId));
     persistStepUpResume(challengeId, pendingRetryContextRef.current);
     // NOT: setReadyForAutoRetry(true) burada ÇAĞIRILMIYOR.
     // triggerStepUpPopup içindeki setTimeout ile doğrudan retry tetikleniyor.
@@ -365,6 +367,76 @@ export default function ChatPage() {
     retry();
   }, [readyForAutoRetry, isLoading]);
 
+  // ─── Redirect dönüşünde step-up confirm + auto-retry ───
+  const stepUpRedirectDoneRef = useRef(false);
+  useEffect(() => {
+    if (stepUpRedirectDoneRef.current) return;
+    if (!isAuthenticated || !user?.sub) return;
+    if (!stepUpResumeStorageKey) return;
+
+    const raw = sessionStorage.getItem(stepUpResumeStorageKey);
+    if (!raw) return;
+
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch { return; }
+    if (!parsed?.awaitingRedirectReturn) return;
+    stepUpRedirectDoneRef.current = true;
+
+    const ageMs = Date.now() - Number(parsed?.savedAt || 0);
+    if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs > STEP_UP_RESUME_TTL_MS) {
+      clearPersistedStepUpResume();
+      return;
+    }
+
+    const challengeId = parsed?.challengeId;
+    const retryCtx = parsed?.retryContext;
+    if (!challengeId || !retryCtx?.message || !retryCtx?.conversationId) {
+      clearPersistedStepUpResume();
+      return;
+    }
+
+    (async () => {
+      try {
+        await new Promise((r) => setTimeout(r, 800));
+
+        const idTokenClaims = await getIdTokenClaims();
+        const stepUpJwt = String(idTokenClaims?.__raw || '').trim();
+        if (!stepUpJwt) throw new Error('step-up token missing after redirect');
+
+        const confirmToken = await getAccessTokenSilently(tokenParams);
+        await stepUpApi.confirm(confirmToken, challengeId, stepUpJwt);
+
+        completedStepUpChallengeRef.current = challengeId;
+        setCompletedStepUpChallengeId(challengeId);
+        setConsumedChallengeIds((prev) => new Set(prev).add(challengeId));
+
+        if (retryCtx.conversationId) {
+          navigate(`/chat/${retryCtx.conversationId}`, { replace: true });
+          await new Promise((r) => setTimeout(r, 500));
+        }
+
+        toast.success(i18n.language === 'tr'
+          ? 'Güvenlik doğrulaması tamamlandı. İşlem devam ettiriliyor...'
+          : 'Security verification completed. Resuming action...');
+
+        syncPendingRetryContext(retryCtx);
+        await sendMessage(retryCtx.message, {
+          appendUserMessage: false,
+          isStepUpRetry: true,
+          conversationIdOverride: retryCtx.conversationId,
+        });
+      } catch (err) {
+        const errMsg = err?.message || 'step-up confirm failed';
+        toast.error(i18n.language === 'tr'
+          ? `Güvenlik onayı tamamlanamadı: ${errMsg}`
+          : `Security confirmation failed: ${errMsg}`);
+      } finally {
+        clearPersistedStepUpResume();
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, user?.sub, stepUpResumeStorageKey]);
+
   const triggerStepUpPopup = async (stepUpRequest) => {
     const normalizedStepUpRequest = normalizeStepUpRequest(stepUpRequest);
     if (!normalizedStepUpRequest) {
@@ -383,93 +455,36 @@ export default function ChatPage() {
       return;
     }
 
-    setStepUpInProgressChallengeId(normalizedStepUpRequest.challengeId);
-
-    try {
-      // Mevcut ID token'ı al — Auth0'ya redirect/popup YAPMA.
-      // Google'a yönlendirme Token Vault'taki Gmail scope'larını ezer.
-      // Mevcut oturum token'ı yeterince taze ise backend kabul eder.
-      const idTokenClaims = await getIdTokenClaims();
-      const stepUpJwt = String(idTokenClaims?.__raw || '').trim();
-      if (!stepUpJwt) {
-        throw new Error('ID token not available');
-      }
-
-      await confirmStepUpChallenge(
-        normalizedStepUpRequest.challengeId,
-        stepUpJwt
-      );
-
-      completeStepUpChallenge(normalizedStepUpRequest);
-
-      // Doğrudan retry tetikle
-      const retryCtx = pendingRetryContextRef.current;
-      if (retryCtx?.message && retryCtx?.conversationId) {
-        setTimeout(() => {
-          sendMessage(retryCtx.message, {
-            appendUserMessage: false,
-            isStepUpRetry: true,
-            conversationIdOverride: retryCtx.conversationId,
-          });
-        }, 300);
-      }
-    } catch (error) {
-      const errMsg = error?.message || error?.error || 'step-up failed';
-      const reason = String(error?.data?.reason || error?.reason || '').trim();
-
-      // Token çok eski veya geçersiz ise CIBA fallback dene
-      const shouldFallbackToCiba = STEP_UP_CIBA_FALLBACK_ENABLED && (
-        reason === 'auth_too_old'
-        || reason === 'auth_timestamp_missing'
-        || reason === 'mfa_claim_missing'
-        || reason === 'stepup_token_invalid'
-        || reason === 'token_invalid'
-        || reason === 'token_expired'
-        || error?.status === 403
-      );
-
-      if (shouldFallbackToCiba) {
-        const fallbackMsg = i18n.language === 'tr'
-          ? 'Oturum yenilenmesi gerekiyor. Cihaz onayı bekleniyor...'
-          : 'Session refresh needed. Waiting for device approval...';
-        toast(fallbackMsg);
-
-        try {
-          await confirmStepUpChallengeViaCiba(normalizedStepUpRequest);
-          completeStepUpChallenge(normalizedStepUpRequest);
-
-          const cibaRetryCtx = pendingRetryContextRef.current;
-          if (cibaRetryCtx?.message && cibaRetryCtx?.conversationId) {
-            setTimeout(() => {
-              sendMessage(cibaRetryCtx.message, {
-                appendUserMessage: false,
-                isStepUpRetry: true,
-                conversationIdOverride: cibaRetryCtx.conversationId,
-              });
-            }, 300);
-          }
-          return;
-        } catch (fallbackError) {
-          const fallbackErr = fallbackError?.message || 'CIBA failed';
-          toast.error(i18n.language === 'tr'
-            ? `MFA doğrulaması tamamlanamadı: ${fallbackErr}`
-            : `MFA verification could not complete: ${fallbackErr}`);
-          completedStepUpChallengeRef.current = null;
-          setCompletedStepUpChallengeId(null);
-          clearPersistedStepUpResume();
-          return;
-        }
-      }
-
-      toast.error(i18n.language === 'tr'
-        ? `Güvenlik onayı tamamlanamadı: ${errMsg}`
-        : `Security confirmation failed: ${errMsg}`);
-      completedStepUpChallengeRef.current = null;
-      setCompletedStepUpChallengeId(null);
-      clearPersistedStepUpResume();
-    } finally {
-      setStepUpInProgressChallengeId(null);
+    // Step-up bilgisini sessionStorage'a kaydet — redirect dönüşünde kullanılacak
+    if (stepUpResumeStorageKey) {
+      sessionStorage.setItem(stepUpResumeStorageKey, JSON.stringify({
+        challengeId: normalizedStepUpRequest.challengeId,
+        action: normalizedStepUpRequest.action,
+        retryContext: pendingRetryContextRef.current || null,
+        awaitingRedirectReturn: true,
+        savedAt: Date.now(),
+      }));
     }
+
+    // Gmail bağlama ile aynı mantık: loginWithRedirect + connection_scope.
+    // Redirect modunda COOP sorunu yok.
+    // connection_scope virgülle ayrılır (backend connect-gmail ile birebir aynı format).
+    // connection: 'google-oauth2' ile doğrudan Google login ekranına yönlendirir.
+    await loginWithRedirect({
+      authorizationParams: {
+        audience,
+        scope: 'openid profile email offline_access',
+        connection: 'google-oauth2',
+        connection_scope: 'https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/gmail.modify',
+        access_type: 'offline',
+        prompt: 'consent',
+        include_granted_scopes: 'true',
+      },
+      appState: {
+        returnTo: window.location.pathname,
+        stepUpChallengeId: normalizedStepUpRequest.challengeId,
+      },
+    });
   };
 
   const sendMessage = async (content, options = {}) => {
@@ -606,6 +621,7 @@ export default function ChatPage() {
                 message={msg}
                 language={i18n.language}
                 completedStepUpChallengeId={completedStepUpChallengeId}
+                consumedChallengeIds={consumedChallengeIds}
                 stepUpInProgressChallengeId={stepUpInProgressChallengeId}
                 onApproveStepUp={triggerStepUpPopup}
               />
@@ -691,6 +707,7 @@ function MessageBubble({
   message,
   language,
   completedStepUpChallengeId,
+  consumedChallengeIds,
   stepUpInProgressChallengeId,
   onApproveStepUp,
 }) {
@@ -698,7 +715,8 @@ function MessageBubble({
   const stepUpRequest = !isUser ? normalizeStepUpRequest(message?.stepUpRequest) : null;
   const stepUpExpired = isStepUpRequestExpired(stepUpRequest);
   const stepUpCompleted = !!stepUpRequest
-    && stepUpRequest.challengeId === completedStepUpChallengeId;
+    && (stepUpRequest.challengeId === completedStepUpChallengeId
+      || consumedChallengeIds?.has(stepUpRequest.challengeId));
   const stepUpLoading = !!stepUpRequest
     && stepUpRequest.challengeId === stepUpInProgressChallengeId;
   const actionLabel = formatStepUpActionLabel(stepUpRequest?.action, language);
