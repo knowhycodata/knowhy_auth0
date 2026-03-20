@@ -12,6 +12,12 @@ const STEP_UP_RESUME_TTL_MS = 5 * 60 * 1000;
 const STEP_UP_ALLOWED_ACTIONS = new Set(['send_email', 'delete_email', 'delete_latest_email']);
 const STEP_UP_CHALLENGE_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+function sleep(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
 function normalizeStepUpRequest(stepUpRequest) {
   if (!stepUpRequest || stepUpRequest.required !== true) return null;
 
@@ -118,6 +124,81 @@ export default function ChatPage() {
   const clearPersistedStepUpResume = () => {
     if (!stepUpResumeStorageKey) return;
     sessionStorage.removeItem(stepUpResumeStorageKey);
+  };
+
+  const completeStepUpChallenge = (normalizedStepUpRequest) => {
+    const successMsg = i18n.language === 'tr'
+      ? `MFA doğrulaması tamamlandı (${normalizedStepUpRequest.action}). İşlem otomatik olarak devam ettirilecek.`
+      : `MFA verification completed (${normalizedStepUpRequest.action}). The action will continue automatically.`;
+    toast.success(successMsg);
+    const challengeId = normalizedStepUpRequest.challengeId;
+    completedStepUpChallengeRef.current = challengeId;
+    setCompletedStepUpChallengeId(completedStepUpChallengeRef.current);
+    persistStepUpResume(challengeId, pendingRetryContextRef.current);
+    if (pendingRetryContextRef.current) {
+      setReadyForAutoRetry(true);
+    }
+  };
+
+  const confirmStepUpChallenge = async (challengeId, stepUpJwt) => {
+    const confirmToken = await getAccessTokenSilently(tokenParams);
+    await stepUpApi.confirm(confirmToken, challengeId, stepUpJwt);
+  };
+
+  const confirmStepUpChallengeViaCiba = async (normalizedStepUpRequest) => {
+    const token = await getAccessTokenSilently(tokenParams);
+    const initiated = await stepUpApi.initiate(token, normalizedStepUpRequest.action);
+    const intervalMs = Math.max(2, Number(initiated?.interval) || 5) * 1000;
+    const timeoutMs = Math.max(30, Number(initiated?.expiresIn) || 60) * 1000;
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() < deadline) {
+      await sleep(intervalMs);
+      const pollResult = await stepUpApi.poll(token, initiated.authReqId);
+
+      if (pollResult.status === 'pending') {
+        continue;
+      }
+
+      if (pollResult.status === 'approved') {
+        const cibaToken = String(
+          pollResult.stepUpIdToken || pollResult.stepUpAccessToken || pollResult.stepUpToken || ''
+        ).trim();
+
+        if (!cibaToken) {
+          throw new Error(
+            i18n.language === 'tr'
+              ? 'MFA onay tokenı alınamadı.'
+              : 'MFA approval token could not be retrieved.'
+          );
+        }
+
+        await confirmStepUpChallenge(normalizedStepUpRequest.challengeId, cibaToken);
+        return;
+      }
+
+      if (pollResult.status === 'rejected') {
+        throw new Error(
+          i18n.language === 'tr'
+            ? 'MFA isteği reddedildi.'
+            : 'The MFA request was rejected.'
+        );
+      }
+
+      if (pollResult.status === 'expired') {
+        throw new Error(
+          i18n.language === 'tr'
+            ? 'MFA isteğinin süresi doldu.'
+            : 'The MFA request expired.'
+        );
+      }
+    }
+
+    throw new Error(
+      i18n.language === 'tr'
+        ? 'MFA doğrulaması zamanında tamamlanmadı.'
+        : 'MFA verification did not complete in time.'
+    );
   };
 
   const persistStepUpResume = (challengeId, retryContext) => {
@@ -319,26 +400,43 @@ export default function ChatPage() {
         throw new Error('step-up token missing');
       }
 
-      const confirmToken = await getAccessTokenSilently(tokenParams);
-      await stepUpApi.confirm(
-        confirmToken,
+      await confirmStepUpChallenge(
         normalizedStepUpRequest.challengeId,
         verifiedStepUpToken
       );
-
-      const successMsg = i18n.language === 'tr'
-        ? `MFA doğrulaması tamamlandı (${normalizedStepUpRequest.action}). İşlem otomatik olarak devam ettirilecek.`
-        : `MFA verification completed (${normalizedStepUpRequest.action}). The action will continue automatically.`;
-      toast.success(successMsg);
-      const challengeId = normalizedStepUpRequest.challengeId;
-      completedStepUpChallengeRef.current = challengeId;
-      setCompletedStepUpChallengeId(completedStepUpChallengeRef.current);
-      persistStepUpResume(challengeId, pendingRetryContextRef.current);
-      if (pendingRetryContextRef.current) {
-        setReadyForAutoRetry(true);
-      }
+      completeStepUpChallenge(normalizedStepUpRequest);
     } catch (error) {
       const popupErr = error?.error || error?.message || 'step-up failed';
+      const stepUpReason = String(error?.data?.reason || '').trim();
+      const shouldFallbackToCiba = error?.status === 403
+        || popupErr === 'missing_refresh_token'
+        || stepUpReason === 'mfa_claim_missing'
+        || stepUpReason === 'stepup_token_invalid'
+        || stepUpReason === 'token_invalid';
+
+      if (shouldFallbackToCiba) {
+        const fallbackMsg = i18n.language === 'tr'
+          ? 'Popup MFA doğrulaması yeterli kanıt üretmedi. Cihaz onayı bekleniyor...'
+          : 'Popup MFA did not produce sufficient proof. Waiting for device approval...';
+        toast(fallbackMsg);
+
+        try {
+          await confirmStepUpChallengeViaCiba(normalizedStepUpRequest);
+          completeStepUpChallenge(normalizedStepUpRequest);
+          return;
+        } catch (fallbackError) {
+          const fallbackErr = fallbackError?.error || fallbackError?.message || 'step-up fallback failed';
+          const blockedMsg = i18n.language === 'tr'
+            ? `MFA doğrulaması tamamlanamadı: ${fallbackErr}`
+            : `MFA verification could not complete: ${fallbackErr}`;
+          toast.error(blockedMsg);
+          completedStepUpChallengeRef.current = null;
+          setCompletedStepUpChallengeId(null);
+          clearPersistedStepUpResume();
+          return;
+        }
+      }
+
       const blockedMsg = i18n.language === 'tr'
         ? `MFA popup tamamlanamadı: ${popupErr}`
         : `MFA popup could not complete: ${popupErr}`;
