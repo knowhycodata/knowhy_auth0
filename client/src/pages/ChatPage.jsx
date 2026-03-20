@@ -409,6 +409,20 @@ export default function ChatPage() {
         verifiedStepUpToken
       );
       completeStepUpChallenge(normalizedStepUpRequest);
+
+      // loginWithPopup sonrası React render cycle güvenilir olmayabilir;
+      // useEffect(readyForAutoRetry) tetiklenmeyebilir.
+      // Bu yüzden doğrudan retry tetikliyoruz.
+      const retryCtx = pendingRetryContextRef.current;
+      if (retryCtx?.message && retryCtx?.conversationId) {
+        setTimeout(() => {
+          sendMessage(retryCtx.message, {
+            appendUserMessage: false,
+            isStepUpRetry: true,
+            conversationIdOverride: retryCtx.conversationId,
+          });
+        }, 300);
+      }
     } catch (error) {
       const popupErr = error?.error || error?.message || 'step-up failed';
       const stepUpReason = String(error?.data?.reason || '').trim();
@@ -429,6 +443,17 @@ export default function ChatPage() {
         try {
           await confirmStepUpChallengeViaCiba(normalizedStepUpRequest);
           completeStepUpChallenge(normalizedStepUpRequest);
+
+          const cibaRetryCtx = pendingRetryContextRef.current;
+          if (cibaRetryCtx?.message && cibaRetryCtx?.conversationId) {
+            setTimeout(() => {
+              sendMessage(cibaRetryCtx.message, {
+                appendUserMessage: false,
+                isStepUpRetry: true,
+                conversationIdOverride: cibaRetryCtx.conversationId,
+              });
+            }, 300);
+          }
           return;
         } catch (fallbackError) {
           const fallbackErr = fallbackError?.error || fallbackError?.message || 'step-up fallback failed';
