@@ -396,6 +396,13 @@ export default function ChatPage() {
           prompt: 'login',
           max_age: 0,
           acr_values: 'http://schemas.openid.net/pape/policies/2007/06/multi-factor',
+          // Google ile re-auth yapıldığında Token Vault'taki Gmail scope'larının
+          // korunması için connection_scope ekliyoruz. Aksi halde re-login sonrası
+          // Token Vault'taki Google identity sadece OIDC scope'ları ile güncellenir
+          // ve Gmail API erişimi kaybolur.
+          connection_scope: 'https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/gmail.modify',
+          access_type: 'offline',
+          include_granted_scopes: 'true',
         },
       });
       const idTokenClaims = await getIdTokenClaims();
