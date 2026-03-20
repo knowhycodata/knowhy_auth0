@@ -53,11 +53,17 @@ export const authApi = {
 
 // ---- Chat ----
 export const chatApi = {
-  sendMessage: (token, { message, conversationId, locale, stepUpChallengeId }) =>
+  sendMessage: (token, {
+    message,
+    conversationId,
+    locale,
+    stepUpChallengeId,
+    stepUpToken,
+  }) =>
     request('/api/chat', {
       method: 'POST',
       token,
-      body: { message, conversationId, locale, stepUpChallengeId },
+      body: { message, conversationId, locale, stepUpChallengeId, stepUpToken },
     }),
 
   getConversations: (token) => request('/api/chat/conversations', { token }),

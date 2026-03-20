@@ -76,7 +76,7 @@ function formatStepUpActionLabel(action, language) {
 }
 
 export default function ChatPage() {
-  const { user, getAccessTokenSilently, loginWithPopup } = useAuth0();
+  const { user, getAccessTokenSilently, getIdTokenClaims, loginWithPopup } = useAuth0();
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
@@ -101,6 +101,7 @@ export default function ChatPage() {
   const inputRef = useRef(null);
   const bootstrapDoneRef = useRef('');
   const completedStepUpChallengeRef = useRef(null);
+  const completedStepUpTokenRef = useRef(null);
   const pendingRetryContextRef = useRef(null);
   const isNewConversationRoute = location.pathname === '/chat/new';
 
@@ -158,6 +159,7 @@ export default function ChatPage() {
           syncPendingRetryContext(null);
           setReadyForAutoRetry(false);
           completedStepUpChallengeRef.current = null;
+          completedStepUpTokenRef.current = null;
           setCompletedStepUpChallengeId(null);
           clearPersistedStepUpResume();
           return;
@@ -314,6 +316,11 @@ export default function ChatPage() {
           acr_values: 'http://schemas.openid.net/pape/policies/2007/06/multi-factor',
         },
       });
+      const idTokenClaims = await getIdTokenClaims();
+      const verifiedStepUpToken = String(idTokenClaims?.__raw || '').trim();
+      if (!verifiedStepUpToken) {
+        throw new Error('step-up token missing');
+      }
 
       const successMsg = i18n.language === 'tr'
         ? `MFA doğrulaması tamamlandı (${normalizedStepUpRequest.action}). İşlem otomatik olarak devam ettirilecek.`
@@ -323,6 +330,7 @@ export default function ChatPage() {
       setForceFreshToken(true);
       const challengeId = normalizedStepUpRequest.challengeId;
       completedStepUpChallengeRef.current = challengeId;
+      completedStepUpTokenRef.current = verifiedStepUpToken;
       setCompletedStepUpChallengeId(completedStepUpChallengeRef.current);
       persistStepUpResume(challengeId, pendingRetryContextRef.current);
       if (pendingRetryContextRef.current) {
@@ -335,6 +343,7 @@ export default function ChatPage() {
         : `MFA popup could not complete: ${popupErr}`;
       toast.error(blockedMsg);
       completedStepUpChallengeRef.current = null;
+      completedStepUpTokenRef.current = null;
       setCompletedStepUpChallengeId(null);
       clearPersistedStepUpResume();
     } finally {
@@ -365,12 +374,14 @@ export default function ChatPage() {
       const token = await getAccessTokenSilently(tokenOptions);
       if (forceFreshToken) setForceFreshToken(false);
       const challengeIdToSend = completedStepUpChallengeRef.current || completedStepUpChallengeId || null;
+      const stepUpTokenToSend = challengeIdToSend ? completedStepUpTokenRef.current : null;
 
       const data = await chatApi.sendMessage(token, {
         message: content.trim(),
         conversationId: conversationIdOverride || conversationId,
         locale: i18n.language,
         stepUpChallengeId: challengeIdToSend,
+        stepUpToken: stepUpTokenToSend,
       });
 
       if (data.success) {
@@ -396,6 +407,7 @@ export default function ChatPage() {
         if (normalizedStepUpRequest) {
           if (challengeIdToSend) {
             completedStepUpChallengeRef.current = null;
+            completedStepUpTokenRef.current = null;
             setCompletedStepUpChallengeId(null);
             clearPersistedStepUpResume();
           }
@@ -423,6 +435,7 @@ export default function ChatPage() {
 
         if (challengeIdToSend && !normalizedStepUpRequest) {
           completedStepUpChallengeRef.current = null;
+          completedStepUpTokenRef.current = null;
           setCompletedStepUpChallengeId(null);
           clearPersistedStepUpResume();
         }

@@ -4,14 +4,16 @@ const logger = require('../utils/logger');
 const { requireAuth } = require('../middleware/auth');
 const { auditLog } = require('../middleware/auditLog');
 const { query } = require('../db');
-const { v4: uuidv4 } = require('uuid');
 const sanitizeHtml = require('sanitize-html');
 const { processMessage } = require('../services/workerAgent');
 const { hasGoogleConnection } = require('../services/tokenVault');
 const { buildStepUpContextFromClaims } = require('../services/stepUpContext');
+const { verifyStepUpToken } = require('../services/stepUpTokenVerifier');
 
 const STEP_UP_ALLOWED_ACTIONS = new Set(['send_email', 'delete_email', 'delete_latest_email']);
 const STEP_UP_CHALLENGE_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const STEP_UP_REQUIRE_MFA_CLAIM = process.env.STEP_UP_REQUIRE_MFA_CLAIM === 'true';
+const STEP_UP_WINDOW_SECONDS = Number(process.env.STEP_UP_WINDOW_SECONDS || 300);
 
 function sanitizeStepUpRequest(stepUpRequest) {
   if (!stepUpRequest || stepUpRequest.required !== true) return null;
@@ -38,10 +40,45 @@ function sanitizeStepUpRequest(stepUpRequest) {
   };
 }
 
+function buildStepUpContextFromVerifiedToken(verification, challengeId) {
+  if (verification?.valid) {
+    const claims = verification.claims || {};
+    return buildStepUpContextFromClaims(
+      {
+        amr: Array.isArray(claims.amr) ? claims.amr : [],
+        acr: typeof claims.acr === 'string' ? claims.acr : null,
+        authTime: Number.isFinite(Number(claims.auth_time)) ? Number(claims.auth_time) : null,
+        issuedAt: Number.isFinite(Number(claims.iat)) ? Number(claims.iat) : null,
+      },
+      challengeId || null
+    );
+  }
+
+  return {
+    approved: false,
+    reason: verification?.reason || 'stepup_token_invalid',
+    hasRecentAuth: false,
+    mfaDetected: false,
+    authAgeSeconds: verification?.authAgeSeconds ?? null,
+    authTimestamp: null,
+    authTime: null,
+    issuedAt: null,
+    challengeId: challengeId || null,
+    windowSeconds: STEP_UP_WINDOW_SECONDS,
+    requireMfaClaim: STEP_UP_REQUIRE_MFA_CLAIM,
+  };
+}
+
 // POST /api/chat - Send a message to the AI agent
 router.post('/', requireAuth, async (req, res) => {
   try {
-    const { message, conversationId, locale, stepUpChallengeId } = req.body;
+    const {
+      message,
+      conversationId,
+      locale,
+      stepUpChallengeId,
+      stepUpToken,
+    } = req.body;
 
     if (!message || typeof message !== 'string' || message.trim().length === 0) {
       return res.status(400).json({
@@ -120,11 +157,33 @@ router.post('/', requireAuth, async (req, res) => {
       });
     }
 
-    // Worker Agent + Guardrail Agent ile mesajı işle
-    const stepUpContext = buildStepUpContextFromClaims(
+    // Worker Agent + Guardrail Agent ile mesaji isle
+    let stepUpContext = buildStepUpContextFromClaims(
       req.user.stepUpClaims || {},
       stepUpChallengeId || null
     );
+
+    const normalizedStepUpToken = typeof stepUpToken === 'string'
+      ? stepUpToken.trim()
+      : '';
+
+    if (normalizedStepUpToken) {
+      const stepUpVerification = await verifyStepUpToken(normalizedStepUpToken, {
+        expectedUserSub: req.user.sub,
+      });
+      stepUpContext = buildStepUpContextFromVerifiedToken(
+        stepUpVerification,
+        stepUpChallengeId || null
+      );
+
+      if (!stepUpVerification.valid) {
+        logger.warn('Chat step-up token verification failed', {
+          userSub: req.user.sub,
+          reason: stepUpVerification.reason,
+        });
+      }
+    }
+
     const agentResult = await processMessage(sanitizedMessage, conversationHistory, {
       auth0UserId: req.user.sub,
       dbUserId: req.dbUser.id,
