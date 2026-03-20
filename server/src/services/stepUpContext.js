@@ -194,6 +194,11 @@ function consumeStepUpChallenge({
     return { approved: false, reason: 'challenge_action_mismatch' };
   }
 
+  // Challenge zaten markStepUpChallengeVerified ile doğrulanmış ise
+  // timestamp kontrolünü atla — inline confirm akışında auth_time
+  // eski oturumun zamanıdır, ama challenge doğrulaması zaten yapılmıştır.
+  const alreadyVerified = !!entry.verifiedAt;
+
   const effectiveAuthTimestamp = typeof authTimestamp === 'number' && authTimestamp > 0
     ? authTimestamp
     : entry.verifiedAuthTimestamp;
@@ -201,13 +206,14 @@ function consumeStepUpChallenge({
     ? mfaDetected
     : !!entry.verifiedMfaDetected;
 
-  if (!(typeof effectiveAuthTimestamp === 'number' && effectiveAuthTimestamp > 0)) {
-    return { approved: false, reason: 'auth_timestamp_missing' };
-  }
+  if (!alreadyVerified) {
+    if (!(typeof effectiveAuthTimestamp === 'number' && effectiveAuthTimestamp > 0)) {
+      return { approved: false, reason: 'auth_timestamp_missing' };
+    }
 
-  // Popup sonrası gelen token, challenge üretiminden sonra doğrulanmış olmalı.
-  if (effectiveAuthTimestamp + STEP_UP_CLOCK_SKEW_SECONDS < entry.createdAt) {
-    return { approved: false, reason: 'auth_not_fresh_after_challenge' };
+    if (effectiveAuthTimestamp + STEP_UP_CLOCK_SKEW_SECONDS < entry.createdAt) {
+      return { approved: false, reason: 'auth_not_fresh_after_challenge' };
+    }
   }
 
   if (STEP_UP_REQUIRE_MFA_CLAIM && !effectiveMfaDetected) {
@@ -217,7 +223,7 @@ function consumeStepUpChallenge({
   stepUpChallenges.delete(challengeId);
   return {
     approved: true,
-    reason: 'challenge_verified',
+    reason: alreadyVerified ? 'challenge_consumed_inline' : 'challenge_verified',
     entry: cloneChallengeEntry(entry),
   };
 }
