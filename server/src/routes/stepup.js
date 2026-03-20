@@ -4,6 +4,8 @@ const logger = require('../utils/logger');
 const { requireAuth } = require('../middleware/auth');
 const { auditLog } = require('../middleware/auditLog');
 const { initiateStepUp, checkStepUpStatus } = require('../services/stepUpAuth');
+const { verifyStepUpToken, resolveAuthTimestamp } = require('../services/stepUpTokenVerifier');
+const { markStepUpChallengeVerified } = require('../services/stepUpContext');
 
 // POST /api/auth/stepup/initiate - Start a step-up auth request (CIBA)
 router.post('/initiate', requireAuth, async (req, res) => {
@@ -74,6 +76,79 @@ router.post('/poll', requireAuth, async (req, res) => {
     res.status(500).json({
       success: false,
       error: error.message || 'Failed to check step-up status',
+    });
+  }
+});
+
+// POST /api/auth/stepup/confirm - Verify popup token and bind it to a pending challenge
+router.post('/confirm', requireAuth, async (req, res) => {
+  try {
+    const challengeId = String(req.body?.challengeId || '').trim();
+    const stepUpToken = String(req.body?.stepUpToken || '').trim();
+
+    if (!challengeId) {
+      return res.status(400).json({ success: false, error: 'challengeId is required' });
+    }
+
+    if (!stepUpToken) {
+      return res.status(400).json({ success: false, error: 'stepUpToken is required' });
+    }
+
+    const verification = await verifyStepUpToken(stepUpToken, {
+      expectedUserSub: req.user.sub,
+    });
+
+    if (!verification.valid) {
+      await auditLog(req.dbUser.id, 'stepup_confirm_rejected', 'auth', {
+        challengeId,
+        reason: verification.reason,
+      }, req, 'rejected');
+
+      return res.status(403).json({
+        success: false,
+        error: 'Step-up verification is invalid or expired',
+        reason: verification.reason,
+      });
+    }
+
+    const challengeResult = markStepUpChallengeVerified({
+      challengeId,
+      userId: req.user.sub,
+      authTimestamp: resolveAuthTimestamp(verification.claims || {}),
+      mfaDetected: verification.mfaDetected,
+    });
+
+    if (!challengeResult.approved) {
+      await auditLog(req.dbUser.id, 'stepup_confirm_rejected', 'auth', {
+        challengeId,
+        reason: challengeResult.reason,
+      }, req, 'rejected');
+
+      return res.status(403).json({
+        success: false,
+        error: 'Step-up challenge confirmation failed',
+        reason: challengeResult.reason,
+      });
+    }
+
+    await auditLog(req.dbUser.id, 'stepup_confirmed', 'auth', {
+      challengeId,
+      action: challengeResult.entry?.action || null,
+      authTimestamp: challengeResult.entry?.verifiedAuthTimestamp || null,
+      mfaDetected: challengeResult.entry?.verifiedMfaDetected || false,
+    }, req, 'approved');
+
+    res.json({
+      success: true,
+      challengeId,
+      action: challengeResult.entry?.action || null,
+      expiresAt: challengeResult.entry?.expiresAt || null,
+    });
+  } catch (error) {
+    logger.error('Step-up confirm error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to confirm step-up authentication',
     });
   }
 });

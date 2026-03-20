@@ -7,8 +7,13 @@ const { query } = require('../db');
 const sanitizeHtml = require('sanitize-html');
 const { processMessage } = require('../services/workerAgent');
 const { hasGoogleConnection } = require('../services/tokenVault');
-const { buildStepUpContextFromClaims } = require('../services/stepUpContext');
-const { verifyStepUpToken } = require('../services/stepUpTokenVerifier');
+const {
+  buildStepUpContextFromClaims,
+  getStepUpChallenge,
+  markStepUpChallengeVerified,
+} = require('../services/stepUpContext');
+const { verifyStepUpToken, resolveAuthTimestamp } = require('../services/stepUpTokenVerifier');
+const { executeTool } = require('../services/toolExecutor');
 
 const STEP_UP_ALLOWED_ACTIONS = new Set(['send_email', 'delete_email', 'delete_latest_email']);
 const STEP_UP_CHALLENGE_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -69,6 +74,133 @@ function buildStepUpContextFromVerifiedToken(verification, challengeId) {
   };
 }
 
+function buildStepUpRequiredMessage(action, locale) {
+  const trMap = {
+    send_email: 'E-posta göndermek',
+    delete_email: 'E-postayı silmek',
+    delete_latest_email: 'Son gelen e-postayı silmek',
+  };
+  const enMap = {
+    send_email: 'Sending the email',
+    delete_email: 'Deleting the email',
+    delete_latest_email: 'Deleting the latest email',
+  };
+
+  if (locale === 'tr') {
+    const actionText = trMap[action] || 'Bu işlemi tamamlamak';
+    return `${actionText} için ek güvenlik onayı gerekiyor. Devam etmek için aşağıdaki "Onaylıyorum" butonuna basın; Auth0 MFA doğrulaması açılacak ve işlem otomatik sürdürülecek.`;
+  }
+
+  const actionText = enMap[action] || 'Completing this action';
+  return `${actionText} requires additional security approval. Click "I Approve" below to open Auth0 MFA, then the action will continue automatically.`;
+}
+
+function buildStepUpContextFromConfirmedChallenge(challenge, challengeId) {
+  const authTimestamp = Number(challenge?.verifiedAuthTimestamp || 0);
+  const now = Math.floor(Date.now() / 1000);
+  const authAgeSeconds = authTimestamp > 0
+    ? Math.max(0, now - authTimestamp)
+    : null;
+
+  return {
+    approved: true,
+    reason: 'challenge_verified',
+    hasRecentAuth: authAgeSeconds !== null && authAgeSeconds <= STEP_UP_WINDOW_SECONDS,
+    mfaDetected: !!challenge?.verifiedMfaDetected,
+    authAgeSeconds,
+    authTimestamp: authTimestamp || null,
+    authTime: authTimestamp || null,
+    issuedAt: authTimestamp || null,
+    challengeId: challengeId || challenge?.challengeId || null,
+    windowSeconds: STEP_UP_WINDOW_SECONDS,
+    requireMfaClaim: STEP_UP_REQUIRE_MFA_CLAIM,
+  };
+}
+
+function buildResumedToolResponse(toolName, toolResult, locale) {
+  const lang = locale === 'tr' ? 'tr' : 'en';
+
+  if (toolResult?.requiresStepUp) {
+    const action = String(toolResult.action || toolName || '').trim().toLowerCase();
+    const message = buildStepUpRequiredMessage(action, lang);
+    return {
+      content: message,
+      stepUpRequest: sanitizeStepUpRequest({
+        required: true,
+        action,
+        challengeId: toolResult.stepUpChallengeId || null,
+        expiresAt: toolResult.stepUpChallengeExpiresAt || null,
+        message,
+      }),
+    };
+  }
+
+  if (!toolResult?.success) {
+    const errorText = String(toolResult?.error || '').trim()
+      || (lang === 'tr' ? 'İşlem tamamlanamadı.' : 'The action could not be completed.');
+    return {
+      content: lang === 'tr'
+        ? `İşlem tamamlanamadı: ${errorText}`
+        : `The action could not be completed: ${errorText}`,
+      stepUpRequest: null,
+    };
+  }
+
+  if (toolName === 'delete_latest_email') {
+    const deletedEmail = toolResult.deletedEmail || {};
+    if (lang === 'tr') {
+      const details = [
+        deletedEmail.from ? `Gönderen: ${deletedEmail.from}` : null,
+        deletedEmail.subject ? `Konu: ${deletedEmail.subject}` : null,
+      ].filter(Boolean);
+
+      return {
+        content: details.length > 0
+          ? `Son gelen e-posta başarıyla silindi.\n\n${details.join('\n')}`
+          : 'Son gelen e-posta başarıyla silindi.',
+        stepUpRequest: null,
+      };
+    }
+
+    const details = [
+      deletedEmail.from ? `Sender: ${deletedEmail.from}` : null,
+      deletedEmail.subject ? `Subject: ${deletedEmail.subject}` : null,
+    ].filter(Boolean);
+
+    return {
+      content: details.length > 0
+        ? `The latest email was deleted successfully.\n\n${details.join('\n')}`
+        : 'The latest email was deleted successfully.',
+      stepUpRequest: null,
+    };
+  }
+
+  if (toolName === 'delete_email') {
+    return {
+      content: lang === 'tr'
+        ? 'E-posta başarıyla silindi.'
+        : 'The email was deleted successfully.',
+      stepUpRequest: null,
+    };
+  }
+
+  if (toolName === 'send_email') {
+    return {
+      content: lang === 'tr'
+        ? 'E-posta başarıyla gönderildi.'
+        : 'The email was sent successfully.',
+      stepUpRequest: null,
+    };
+  }
+
+  return {
+    content: lang === 'tr'
+      ? 'İşlem başarıyla tamamlandı.'
+      : 'The action completed successfully.',
+    stepUpRequest: null,
+  };
+}
+
 // POST /api/chat - Send a message to the AI agent
 router.post('/', requireAuth, async (req, res) => {
   try {
@@ -78,7 +210,9 @@ router.post('/', requireAuth, async (req, res) => {
       locale,
       stepUpChallengeId,
       stepUpToken,
+      stepUpResume,
     } = req.body;
+    const activeLocale = locale || req.dbUser.locale || 'en';
 
     if (!message || typeof message !== 'string' || message.trim().length === 0) {
       return res.status(400).json({
@@ -105,7 +239,7 @@ router.post('/', requireAuth, async (req, res) => {
     if (!convId) {
       const convResult = await query(
         `INSERT INTO conversations (user_id, title, locale) VALUES ($1, $2, $3) RETURNING id`,
-        [req.dbUser.id, sanitizedMessage.substring(0, 100), locale || req.dbUser.locale || 'en']
+        [req.dbUser.id, sanitizedMessage.substring(0, 100), activeLocale]
       );
       convId = convResult.rows[0].id;
     } else {
@@ -119,24 +253,51 @@ router.post('/', requireAuth, async (req, res) => {
       }
     }
 
-    // Save user message
-    await query(
-      `INSERT INTO messages (conversation_id, role, content) VALUES ($1, $2, $3)`,
-      [convId, 'user', sanitizedMessage]
-    );
+    const normalizedStepUpToken = typeof stepUpToken === 'string'
+      ? stepUpToken.trim()
+      : '';
+    let confirmedStepUpChallenge = getStepUpChallenge(stepUpChallengeId || null, req.user.sub);
 
-    await auditLog(req.dbUser.id, 'chat_message_sent', 'chat', { conversationId: convId }, req);
+    if (normalizedStepUpToken && stepUpChallengeId) {
+      const stepUpVerification = await verifyStepUpToken(normalizedStepUpToken, {
+        expectedUserSub: req.user.sub,
+      });
 
-    // Konuşma geçmişini al (son 20 mesaj)
-    const historyResult = await query(
-      `SELECT role, content FROM messages
-       WHERE conversation_id = $1
-       ORDER BY created_at ASC
-       LIMIT 20`,
-      [convId]
-    );
-    // Son mesajı (şu anda eklenen user mesajını) çıkar, çünkü worker'a ayrıca gönderiyoruz
-    const conversationHistory = historyResult.rows.slice(0, -1);
+      if (stepUpVerification.valid) {
+        const confirmationResult = markStepUpChallengeVerified({
+          challengeId: stepUpChallengeId,
+          userId: req.user.sub,
+          authTimestamp: resolveAuthTimestamp(stepUpVerification.claims || {}),
+          mfaDetected: stepUpVerification.mfaDetected,
+        });
+
+        if (confirmationResult.approved) {
+          confirmedStepUpChallenge = confirmationResult.entry;
+        } else {
+          logger.warn('Chat step-up challenge confirmation failed', {
+            userSub: req.user.sub,
+            challengeId: stepUpChallengeId,
+            reason: confirmationResult.reason,
+          });
+        }
+      } else {
+        logger.warn('Chat step-up token verification failed', {
+          userSub: req.user.sub,
+          reason: stepUpVerification.reason,
+        });
+      }
+    }
+
+    const shouldPersistUserMessage = stepUpResume !== true;
+
+    if (shouldPersistUserMessage) {
+      await query(
+        `INSERT INTO messages (conversation_id, role, content) VALUES ($1, $2, $3)`,
+        [convId, 'user', sanitizedMessage]
+      );
+
+      await auditLog(req.dbUser.id, 'chat_message_sent', 'chat', { conversationId: convId }, req);
+    }
 
     // Token Vault'tan gerçek Gmail bağlantı durumunu al ve DB ile senkronize et.
     let gmailConnected = req.dbUser.gmail_connected;
@@ -157,15 +318,95 @@ router.post('/', requireAuth, async (req, res) => {
       });
     }
 
+    const canResumeConfirmedStepUp = stepUpResume === true
+      && !!confirmedStepUpChallenge
+      && STEP_UP_ALLOWED_ACTIONS.has(confirmedStepUpChallenge.action)
+      && Number.isFinite(Number(confirmedStepUpChallenge.verifiedAuthTimestamp))
+      && Number(confirmedStepUpChallenge.verifiedAuthTimestamp) > 0;
+
+    if (canResumeConfirmedStepUp) {
+      const resumedToolResult = await executeTool(
+        confirmedStepUpChallenge.action,
+        confirmedStepUpChallenge.pendingArgs || {},
+        {
+          auth0UserId: req.user.sub,
+          dbUserId: req.dbUser.id,
+          userEmail: req.user.email,
+          gmailConnected,
+          locale: activeLocale,
+          stepUpContext: buildStepUpContextFromConfirmedChallenge(
+            confirmedStepUpChallenge,
+            stepUpChallengeId || confirmedStepUpChallenge.challengeId
+          ),
+          req,
+        }
+      );
+
+      const resumedPayload = buildResumedToolResponse(
+        confirmedStepUpChallenge.action,
+        resumedToolResult,
+        activeLocale
+      );
+      const resumedStepUpRequest = sanitizeStepUpRequest(resumedPayload.stepUpRequest);
+      const resumedMetadata = {
+        resumedStepUp: true,
+        resumedAction: confirmedStepUpChallenge.action,
+        toolResults: [{
+          tool: confirmedStepUpChallenge.action,
+          success: resumedToolResult?.success,
+          requiresStepUp: !!resumedToolResult?.requiresStepUp,
+          action: resumedToolResult?.action || confirmedStepUpChallenge.action,
+        }],
+      };
+
+      if (resumedStepUpRequest) {
+        resumedMetadata.stepUpRequest = resumedStepUpRequest;
+      }
+
+      await query(
+        `INSERT INTO messages (conversation_id, role, content, metadata) VALUES ($1, $2, $3, $4)`,
+        [
+          convId,
+          'assistant',
+          resumedPayload.content,
+          JSON.stringify(resumedMetadata),
+        ]
+      );
+
+      await query(
+        'UPDATE conversations SET updated_at = NOW() WHERE id = $1',
+        [convId]
+      );
+
+      return res.json({
+        success: true,
+        conversationId: convId,
+        message: {
+          role: 'assistant',
+          content: resumedPayload.content,
+          ...(resumedStepUpRequest && { stepUpRequest: resumedStepUpRequest }),
+        },
+        ...(resumedStepUpRequest && { stepUpRequest: resumedStepUpRequest }),
+      });
+    }
+
+    // Konuşma geçmişini al (son 20 mesaj)
+    const historyResult = await query(
+      `SELECT role, content FROM messages
+       WHERE conversation_id = $1
+       ORDER BY created_at ASC
+       LIMIT 20`,
+      [convId]
+    );
+    const conversationHistory = shouldPersistUserMessage
+      ? historyResult.rows.slice(0, -1)
+      : historyResult.rows;
+
     // Worker Agent + Guardrail Agent ile mesaji isle
     let stepUpContext = buildStepUpContextFromClaims(
       req.user.stepUpClaims || {},
       stepUpChallengeId || null
     );
-
-    const normalizedStepUpToken = typeof stepUpToken === 'string'
-      ? stepUpToken.trim()
-      : '';
 
     if (normalizedStepUpToken) {
       const stepUpVerification = await verifyStepUpToken(normalizedStepUpToken, {
@@ -189,7 +430,7 @@ router.post('/', requireAuth, async (req, res) => {
       dbUserId: req.dbUser.id,
       userEmail: req.user.email,
       gmailConnected,
-      locale: locale || req.dbUser.locale || 'en',
+      locale: activeLocale,
       stepUpContext,
       req,
     });

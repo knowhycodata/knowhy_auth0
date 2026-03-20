@@ -59,11 +59,19 @@ export const chatApi = {
     locale,
     stepUpChallengeId,
     stepUpToken,
+    stepUpResume,
   }) =>
     request('/api/chat', {
       method: 'POST',
       token,
-      body: { message, conversationId, locale, stepUpChallengeId, stepUpToken },
+      body: {
+        message,
+        conversationId,
+        locale,
+        stepUpChallengeId,
+        stepUpToken,
+        stepUpResume,
+      },
     }),
 
   getConversations: (token) => request('/api/chat/conversations', { token }),
@@ -95,6 +103,13 @@ export const stepUpApi = {
 
   poll: (token, authReqId) =>
     request('/api/auth/stepup/poll', { method: 'POST', token, body: { authReqId } }),
+
+  confirm: (token, challengeId, stepUpToken) =>
+    request('/api/auth/stepup/confirm', {
+      method: 'POST',
+      token,
+      body: { challengeId, stepUpToken },
+    }),
 };
 
 // ---- Health ----

@@ -56,6 +56,17 @@ function resolveAuthTimestamp(claims = {}) {
   return null;
 }
 
+function cloneChallengeEntry(entry) {
+  if (!entry) return null;
+
+  return {
+    ...entry,
+    pendingArgs: entry.pendingArgs && typeof entry.pendingArgs === 'object'
+      ? { ...entry.pendingArgs }
+      : entry.pendingArgs ?? null,
+  };
+}
+
 function createStepUpChallenge({ userId, action, pendingArgs = null }) {
   cleanupExpiredChallenges();
 
@@ -68,13 +79,79 @@ function createStepUpChallenge({ userId, action, pendingArgs = null }) {
     pendingArgs,
     createdAt,
     expiresAt: createdAt + STEP_UP_CHALLENGE_TTL_SECONDS,
+    verifiedAt: null,
+    verifiedAuthTimestamp: null,
+    verifiedMfaDetected: false,
   };
 
   stepUpChallenges.set(challengeId, entry);
-  return entry;
+  return cloneChallengeEntry(entry);
 }
 
-function consumeStepUpChallenge({ challengeId, userId, action, authTimestamp }) {
+function getStepUpChallenge(challengeId, userId = null) {
+  cleanupExpiredChallenges();
+
+  if (!challengeId) return null;
+
+  const entry = stepUpChallenges.get(challengeId);
+  if (!entry) return null;
+  if (userId && entry.userId !== userId) return null;
+
+  return cloneChallengeEntry(entry);
+}
+
+function markStepUpChallengeVerified({
+  challengeId,
+  userId,
+  authTimestamp,
+  mfaDetected = false,
+}) {
+  cleanupExpiredChallenges();
+
+  if (!challengeId) {
+    return { approved: false, reason: 'challenge_missing', entry: null };
+  }
+
+  const entry = stepUpChallenges.get(challengeId);
+  if (!entry) {
+    return { approved: false, reason: 'challenge_not_found', entry: null };
+  }
+
+  if (entry.userId !== userId) {
+    return { approved: false, reason: 'challenge_user_mismatch', entry: null };
+  }
+
+  if (!(typeof authTimestamp === 'number' && authTimestamp > 0)) {
+    return { approved: false, reason: 'auth_timestamp_missing', entry: null };
+  }
+
+  if (authTimestamp + STEP_UP_CLOCK_SKEW_SECONDS < entry.createdAt) {
+    return { approved: false, reason: 'auth_not_fresh_after_challenge', entry: null };
+  }
+
+  if (STEP_UP_REQUIRE_MFA_CLAIM && !mfaDetected) {
+    return { approved: false, reason: 'mfa_claim_missing', entry: null };
+  }
+
+  entry.verifiedAt = nowSeconds();
+  entry.verifiedAuthTimestamp = authTimestamp;
+  entry.verifiedMfaDetected = !!mfaDetected;
+
+  stepUpChallenges.set(challengeId, entry);
+  return {
+    approved: true,
+    reason: 'challenge_verified',
+    entry: cloneChallengeEntry(entry),
+  };
+}
+
+function consumeStepUpChallenge({
+  challengeId,
+  userId,
+  action,
+  authTimestamp,
+  mfaDetected = null,
+}) {
   cleanupExpiredChallenges();
 
   if (!challengeId) {
@@ -94,17 +171,32 @@ function consumeStepUpChallenge({ challengeId, userId, action, authTimestamp }) 
     return { approved: false, reason: 'challenge_action_mismatch' };
   }
 
-  if (!(typeof authTimestamp === 'number' && authTimestamp > 0)) {
+  const effectiveAuthTimestamp = typeof authTimestamp === 'number' && authTimestamp > 0
+    ? authTimestamp
+    : entry.verifiedAuthTimestamp;
+  const effectiveMfaDetected = typeof mfaDetected === 'boolean'
+    ? mfaDetected
+    : !!entry.verifiedMfaDetected;
+
+  if (!(typeof effectiveAuthTimestamp === 'number' && effectiveAuthTimestamp > 0)) {
     return { approved: false, reason: 'auth_timestamp_missing' };
   }
 
   // Popup sonrası gelen token, challenge üretiminden sonra doğrulanmış olmalı.
-  if (authTimestamp + STEP_UP_CLOCK_SKEW_SECONDS < entry.createdAt) {
+  if (effectiveAuthTimestamp + STEP_UP_CLOCK_SKEW_SECONDS < entry.createdAt) {
     return { approved: false, reason: 'auth_not_fresh_after_challenge' };
   }
 
+  if (STEP_UP_REQUIRE_MFA_CLAIM && !effectiveMfaDetected) {
+    return { approved: false, reason: 'mfa_claim_missing' };
+  }
+
   stepUpChallenges.delete(challengeId);
-  return { approved: true, reason: 'challenge_verified', entry };
+  return {
+    approved: true,
+    reason: 'challenge_verified',
+    entry: cloneChallengeEntry(entry),
+  };
 }
 
 function buildStepUpContextFromClaims(claims = {}, challengeId = null) {
@@ -143,5 +235,7 @@ function buildStepUpContextFromClaims(claims = {}, challengeId = null) {
 module.exports = {
   buildStepUpContextFromClaims,
   createStepUpChallenge,
+  getStepUpChallenge,
+  markStepUpChallengeVerified,
   consumeStepUpChallenge,
 };

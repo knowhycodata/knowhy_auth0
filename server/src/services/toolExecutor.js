@@ -107,6 +107,7 @@ async function executeTool(toolName, args, context) {
       userId: auth0UserId,
       action: toolName,
       authTimestamp: stepUpContext?.authTimestamp,
+      mfaDetected: stepUpContext?.mfaDetected,
     });
     const policyApproved = !!stepUpContext
       && (stepUpContext.mfaDetected || !stepUpContext.requireMfaClaim);

@@ -6,7 +6,7 @@ import { Send, Loader2, Mail, BookOpen, PenLine, Bot, User } from 'lucide-react'
 import ReactMarkdown from 'react-markdown';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
-import { chatApi, userApi } from '../services/api';
+import { chatApi, stepUpApi, userApi } from '../services/api';
 
 const STEP_UP_RESUME_TTL_MS = 5 * 60 * 1000;
 const STEP_UP_ALLOWED_ACTIONS = new Set(['send_email', 'delete_email', 'delete_latest_email']);
@@ -101,7 +101,6 @@ export default function ChatPage() {
   const inputRef = useRef(null);
   const bootstrapDoneRef = useRef('');
   const completedStepUpChallengeRef = useRef(null);
-  const completedStepUpTokenRef = useRef(null);
   const pendingRetryContextRef = useRef(null);
   const isNewConversationRoute = location.pathname === '/chat/new';
 
@@ -159,7 +158,6 @@ export default function ChatPage() {
           syncPendingRetryContext(null);
           setReadyForAutoRetry(false);
           completedStepUpChallengeRef.current = null;
-          completedStepUpTokenRef.current = null;
           setCompletedStepUpChallengeId(null);
           clearPersistedStepUpResume();
           return;
@@ -322,6 +320,13 @@ export default function ChatPage() {
         throw new Error('step-up token missing');
       }
 
+      const confirmToken = await getAccessTokenSilently({ ...tokenParams, cacheMode: 'off' });
+      await stepUpApi.confirm(
+        confirmToken,
+        normalizedStepUpRequest.challengeId,
+        verifiedStepUpToken
+      );
+
       const successMsg = i18n.language === 'tr'
         ? `MFA doğrulaması tamamlandı (${normalizedStepUpRequest.action}). İşlem otomatik olarak devam ettirilecek.`
         : `MFA verification completed (${normalizedStepUpRequest.action}). The action will continue automatically.`;
@@ -330,7 +335,6 @@ export default function ChatPage() {
       setForceFreshToken(true);
       const challengeId = normalizedStepUpRequest.challengeId;
       completedStepUpChallengeRef.current = challengeId;
-      completedStepUpTokenRef.current = verifiedStepUpToken;
       setCompletedStepUpChallengeId(completedStepUpChallengeRef.current);
       persistStepUpResume(challengeId, pendingRetryContextRef.current);
       if (pendingRetryContextRef.current) {
@@ -343,7 +347,6 @@ export default function ChatPage() {
         : `MFA popup could not complete: ${popupErr}`;
       toast.error(blockedMsg);
       completedStepUpChallengeRef.current = null;
-      completedStepUpTokenRef.current = null;
       setCompletedStepUpChallengeId(null);
       clearPersistedStepUpResume();
     } finally {
@@ -374,14 +377,17 @@ export default function ChatPage() {
       const token = await getAccessTokenSilently(tokenOptions);
       if (forceFreshToken) setForceFreshToken(false);
       const challengeIdToSend = completedStepUpChallengeRef.current || completedStepUpChallengeId || null;
-      const stepUpTokenToSend = challengeIdToSend ? completedStepUpTokenRef.current : null;
+      const shouldResumePendingStepUp = !!challengeIdToSend && (
+        isStepUpRetry
+        || content.trim() === pendingRetryContextRef.current?.message
+      );
 
       const data = await chatApi.sendMessage(token, {
         message: content.trim(),
         conversationId: conversationIdOverride || conversationId,
         locale: i18n.language,
         stepUpChallengeId: challengeIdToSend,
-        stepUpToken: stepUpTokenToSend,
+        stepUpResume: shouldResumePendingStepUp,
       });
 
       if (data.success) {
@@ -407,7 +413,6 @@ export default function ChatPage() {
         if (normalizedStepUpRequest) {
           if (challengeIdToSend) {
             completedStepUpChallengeRef.current = null;
-            completedStepUpTokenRef.current = null;
             setCompletedStepUpChallengeId(null);
             clearPersistedStepUpResume();
           }
@@ -435,7 +440,6 @@ export default function ChatPage() {
 
         if (challengeIdToSend && !normalizedStepUpRequest) {
           completedStepUpChallengeRef.current = null;
-          completedStepUpTokenRef.current = null;
           setCompletedStepUpChallengeId(null);
           clearPersistedStepUpResume();
         }
