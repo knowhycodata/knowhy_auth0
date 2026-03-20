@@ -136,9 +136,9 @@ export default function ChatPage() {
     completedStepUpChallengeRef.current = challengeId;
     setCompletedStepUpChallengeId(completedStepUpChallengeRef.current);
     persistStepUpResume(challengeId, pendingRetryContextRef.current);
-    if (pendingRetryContextRef.current) {
-      setReadyForAutoRetry(true);
-    }
+    // NOT: setReadyForAutoRetry(true) burada ÇAĞIRILMIYOR.
+    // triggerStepUpPopup içindeki setTimeout ile doğrudan retry tetikleniyor.
+    // İkisini birden çağırmak çift sendMessage → sonsuz döngüye neden oluyordu.
   };
 
   const confirmStepUpChallenge = async (challengeId, stepUpJwt) => {
