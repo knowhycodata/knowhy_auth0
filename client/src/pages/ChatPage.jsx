@@ -109,6 +109,7 @@ export default function ChatPage() {
   const bootstrapDoneRef = useRef('');
   const completedStepUpChallengeRef = useRef(null);
   const pendingRetryContextRef = useRef(null);
+  const lastAutoRetriedChallengeRef = useRef(null);
   const isNewConversationRoute = location.pathname === '/chat/new';
 
   const conversationStorageKey = user?.sub
@@ -337,6 +338,12 @@ export default function ChatPage() {
         return;
       }
 
+      if (parsed?.awaitingRedirectReturn === true) {
+        // Redirect step-up dönüşünde confirm + retry ayrı useEffect içinde tek sefer çalıştırılır.
+        // Burada auto-retry başlatmak çift sendMessage üretir.
+        return;
+      }
+
       completedStepUpChallengeRef.current = parsed.challengeId;
       setCompletedStepUpChallengeId(parsed.challengeId);
 
@@ -353,6 +360,17 @@ export default function ChatPage() {
     if (!readyForAutoRetry || isLoading) return;
     const retryContext = pendingRetryContextRef.current;
     if (!retryContext) return;
+
+    const retryChallengeId = completedStepUpChallengeRef.current;
+    if (retryChallengeId && lastAutoRetriedChallengeRef.current === retryChallengeId) {
+      setReadyForAutoRetry(false);
+      syncPendingRetryContext(null);
+      return;
+    }
+
+    if (retryChallengeId) {
+      lastAutoRetriedChallengeRef.current = retryChallengeId;
+    }
 
     setReadyForAutoRetry(false);
     const retry = async () => {
@@ -419,7 +437,12 @@ export default function ChatPage() {
           ? 'Güvenlik doğrulaması tamamlandı. İşlem devam ettiriliyor...'
           : 'Security verification completed. Resuming action...');
 
-        syncPendingRetryContext(retryCtx);
+        if (lastAutoRetriedChallengeRef.current === challengeId) {
+          return;
+        }
+        lastAutoRetriedChallengeRef.current = challengeId;
+
+        // NOT: syncPendingRetryContext çağrılmıyor — readyForAutoRetry useEffect'ini tetikler ve çift sendMessage'e neden olurdu
         await sendMessage(retryCtx.message, {
           appendUserMessage: false,
           isStepUpRetry: true,
