@@ -16,7 +16,7 @@
 | **GitHub Repository** | https://github.com/knowhycodata/knowhy_auth0 |
 | **Blog (English)** | [How Knowhy Built Zero-Trust AI Agents with Auth0 Token Vault](https://knowhyco.substack.com/p/authorized-to-act-how-knowhy-built) |
 | **Blog (Türkçe)** | [Auth0 Token Vault ile Sıfır Güven AI Ajanları](https://knowhyco.substack.com/p/authorized-to-act-knowhy-auth0-token) |
-| **Video Demo** | Coming soon (~3 min, Token Vault + Step-up MFA flow) |
+| **Video Demo** | https://youtu.be/UiXsB_KccqY |
 
 ---
 
