@@ -225,7 +225,7 @@ flowchart TD
    - returns requiresStepUp=true with challengeId/expiresAt
 4) Frontend:
    - Opens MFA modal
-   - Completes step-up with loginWithPopup(acr_values=multi-factor)
+   - Completes step-up confirmation via frontend + `/api/auth/stepup/confirm` flow
    - Auto-retry same user message with stepUpChallengeId
 5) Backend:
    - buildStepUpContextFromClaims + consumeStepUpChallenge

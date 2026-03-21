@@ -19,6 +19,30 @@ function hasExplicitSendIntent(message = '') {
   return /(mail at|email at|send (an )?email|e-?posta (at|g[öo]nder)|mail g[öo]nder|mesaj g[öo]nder)/i.test(text);
 }
 
+function hasExplicitDeleteIntent(message = '') {
+  const text = String(message || '');
+  if (!text) return false;
+
+  const hasDeleteVerb = /(delete|remove|trash|sil|kald[ıi]r|copa at|ç[öo]pe at)/i.test(text);
+  const hasEmailNoun = /(mail|email|e-?posta|mesaj)/i.test(text);
+  const hasLatestHint = /(latest|last|most recent|son|en son)/i.test(text);
+
+  return hasDeleteVerb && (hasEmailNoun || hasLatestHint);
+}
+
+function resolveForcedToolName(message = '') {
+  if (hasExplicitDeleteIntent(message)) {
+    // Kullanıcı ID belirtmemiş olsa bile deterministic şekilde "latest" akışına sok.
+    return 'delete_latest_email';
+  }
+
+  if (hasExplicitSendIntent(message)) {
+    return 'send_email';
+  }
+
+  return null;
+}
+
 /**
  * WORKER AGENT - İşçi Ajan
  * 
@@ -134,7 +158,9 @@ async function processMessage(userMessage, conversationHistory, context) {
     // Worker Agent'a çağrı yap
     let response;
     try {
-      const forceSendTool = round === 1 && hasExplicitSendIntent(userMessage);
+      const forcedToolName = round === 1 && gmailConnected
+        ? resolveForcedToolName(userMessage)
+        : null;
       response = await chatCompletion(
         WORKER_MODEL,
         messages,
@@ -142,10 +168,10 @@ async function processMessage(userMessage, conversationHistory, context) {
         {
           temperature: 0.4,
           max_tokens: 4096,
-          ...(forceSendTool && {
+          ...(forcedToolName && {
             tool_choice: {
               type: 'function',
-              function: { name: 'send_email' },
+              function: { name: forcedToolName },
             },
           }),
         }
